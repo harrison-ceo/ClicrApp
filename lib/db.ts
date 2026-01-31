@@ -14,7 +14,7 @@ if (!fs.existsSync(path.dirname(DB_PATH))) {
 // Initial Mock Data (Moved from store.tsx)
 const INITIAL_BUSINESS: Business = {
     id: 'biz_001',
-    name: 'NightLife Corp',
+    name: 'My Organization',
     timezone: 'America/New_York',
     settings: {
         refresh_interval_sec: 5,
@@ -511,6 +511,17 @@ export function isUserBanned(userId: string, venueId?: string): boolean {
     }
 
     return false;
+}
+
+// ... existing functions ...
+
+export function updateBusiness(updates: Partial<Business>) {
+    const data = readDB();
+    if (data.business) {
+        data.business = { ...data.business, ...updates };
+        writeDB(data);
+    }
+    return data;
 }
 
 // WARNING: This is a DESTRUCTIVE RESET specifically for debugging persistent state issues.

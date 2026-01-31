@@ -76,8 +76,8 @@ export default function DashboardPage() {
                 {/* ONBOARDING EMPTY STATE */}
                 {venues.length === 0 && (
                     <div className="bg-[#1e2330]/50 border border-white/5 rounded-3xl p-12 text-center flex flex-col items-center justify-center space-y-6 max-w-2xl mx-auto mt-12">
-                        <div className="w-20 h-20 bg-blue-600/20 text-blue-500 rounded-full flex items-center justify-center">
-                            <Building2 className="w-10 h-10" />
+                        <div className="w-24 h-24 bg-primary/20 text-primary rounded-full flex items-center justify-center shadow-lg shadow-primary/10 mb-2">
+                            <img src="/clicr-logo-white.png" alt="Clicr" className="w-16 h-16 object-contain" />
                         </div>
                         <div>
                             <h2 className="text-2xl font-bold text-white mb-2">Welcome to your Dashboard</h2>
@@ -87,7 +87,7 @@ export default function DashboardPage() {
                         </div>
                         <Link
                             href="/venues/new"
-                            className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 px-8 rounded-full shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2"
+                            className="bg-primary hover:bg-primary-hover text-white font-bold py-4 px-8 rounded-full shadow-lg shadow-primary/25 transition-all flex items-center gap-2"
                         >
                             Set up your first Venue <ArrowRight className="w-5 h-5" />
                         </Link>

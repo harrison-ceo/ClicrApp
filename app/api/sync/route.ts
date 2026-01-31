@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readDB, addEvent, addScan, resetAllCounts, addUser, updateUser, removeUser, writeDB, addClicr, updateClicr, updateArea, factoryResetDB, addBan, revokeBan, isUserBanned, createPatronBan, updatePatronBan, recordBanEnforcement, addVenue, updateVenue, addArea, addDevice, updateDevice, addCapacityOverride, addVenueAuditLog, assignEntityToUser } from '@/lib/db';
+import { readDB, addEvent, addScan, resetAllCounts, addUser, updateUser, removeUser, writeDB, addClicr, updateClicr, updateArea, factoryResetDB, addBan, revokeBan, isUserBanned, createPatronBan, updatePatronBan, recordBanEnforcement, addVenue, updateVenue, addArea, addDevice, updateDevice, addCapacityOverride, addVenueAuditLog, assignEntityToUser, updateBusiness } from '@/lib/db';
 import { CountEvent, IDScanEvent, User, Clicr, Area, BanRecord, BanEnforcementEvent } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -148,6 +148,9 @@ export async function POST(request: Request) {
                 break;
             case 'ADD_VENUE_AUDIT_LOG':
                 updatedData = addVenueAuditLog(payload);
+                break;
+            case 'UPDATE_BUSINESS':
+                updatedData = updateBusiness(payload);
                 break;
             default:
                 return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

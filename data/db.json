@@ -1,7 +1,7 @@
 {
   "business": {
     "id": "biz_001",
-    "name": "NightLife Corp",
+    "name": "Wilkins Hospitality",
     "timezone": "America/New_York",
     "settings": {
       "refresh_interval_sec": 5,
@@ -18,22 +18,46 @@
       "id": "ven_001",
       "business_id": "biz_001",
       "name": "The Neon Lounge",
-      "capacity_limit": 500,
       "active": true,
-      "capacity_enforcement_mode": "HARD_STOP",
-      "default_capacity_total": 100
+      "status": "ACTIVE",
+      "timezone": "America/New_York",
+      "capacity_enforcement_mode": "WARN_ONLY",
+      "default_capacity_total": 500,
+      "city": "New York",
+      "state": "NY",
+      "created_at": "2026-01-31T08:51:06.180Z",
+      "updated_at": "2026-01-31T08:51:06.180Z"
     },
     {
       "id": "ven_002",
       "business_id": "biz_001",
       "name": "Rooftop Garden",
-      "capacity_limit": 200,
       "active": true,
-      "default_capacity_total": 150,
-      "capacity_enforcement_mode": "HARD_STOP"
+      "status": "ACTIVE",
+      "timezone": "America/New_York",
+      "capacity_enforcement_mode": "WARN_ONLY",
+      "default_capacity_total": 200,
+      "city": "New York",
+      "state": "NY",
+      "created_at": "2026-01-31T08:51:06.180Z",
+      "updated_at": "2026-01-31T08:51:06.180Z"
     },
     {
-      "id": "ty0gcs",
+      "id": "fqyr2f",
+      "business_id": "biz_001",
+      "name": "Peacock",
+      "city": "Savannah",
+      "state": "GA",
+      "default_capacity_total": 45,
+      "capacity_enforcement_mode": "WARN_ONLY",
+      "status": "ACTIVE",
+      "timezone": "America/New_York",
+      "created_at": "2026-01-31T08:53:35.609Z",
+      "updated_at": "2026-01-31T08:53:35.609Z",
+      "active": true
+    },
+    {
+      "id": "x19ty",
       "business_id": "biz_001",
       "name": "Peacock Lounge",
       "city": "Savannah",
@@ -42,8 +66,8 @@
       "capacity_enforcement_mode": "WARN_ONLY",
       "status": "ACTIVE",
       "timezone": "America/New_York",
-      "created_at": "2026-01-31T08:41:40.413Z",
-      "updated_at": "2026-01-31T08:41:40.413Z",
+      "created_at": "2026-01-31T08:58:05.541Z",
+      "updated_at": "2026-01-31T08:58:05.541Z",
       "active": true
     }
   ],
@@ -52,22 +76,51 @@
       "id": "area_001",
       "venue_id": "ven_001",
       "name": "Main Floor",
-      "capacity_limit": 300,
-      "active": true
+      "default_capacity": 300,
+      "is_active": true,
+      "active": true,
+      "area_type": "MAIN",
+      "counting_mode": "BOTH",
+      "created_at": "2026-01-31T08:51:06.180Z",
+      "updated_at": "2026-01-31T08:51:06.180Z"
     },
     {
       "id": "area_002",
       "venue_id": "ven_001",
       "name": "VIP Section",
-      "capacity_limit": 50,
-      "active": true
+      "default_capacity": 50,
+      "is_active": true,
+      "active": true,
+      "area_type": "VIP",
+      "counting_mode": "BOTH",
+      "created_at": "2026-01-31T08:51:06.180Z",
+      "updated_at": "2026-01-31T08:51:06.180Z"
     },
     {
       "id": "area_003",
       "venue_id": "ven_002",
       "name": "Terrace",
-      "capacity_limit": 150,
-      "active": true
+      "default_capacity": 150,
+      "is_active": true,
+      "active": true,
+      "area_type": "PATIO",
+      "counting_mode": "BOTH",
+      "created_at": "2026-01-31T08:51:06.180Z",
+      "updated_at": "2026-01-31T08:51:06.180Z"
+    },
+    {
+      "id": "a4lxzn",
+      "venue_id": "fqyr2f",
+      "name": "Lounge",
+      "capacity": 45,
+      "current_count": 0
+    },
+    {
+      "id": "awqra",
+      "venue_id": "x19ty",
+      "name": "Lounge",
+      "capacity": 45,
+      "current_count": 0
     }
   ],
   "clicrs": [
@@ -88,116 +141,42 @@
       "active": true
     },
     {
-      "id": "clicr_60q5qkqmw",
-      "area_id": "area_002",
+      "id": "64giu",
+      "area_id": "a4lxzn",
       "name": "Entrance",
-      "flow_mode": "BIDIRECTIONAL",
-      "current_count": 0,
-      "active": true
-    },
-    {
-      "id": "clicr_xuedirzva",
-      "area_id": "area_002",
-      "name": "Exit",
-      "flow_mode": "BIDIRECTIONAL",
-      "current_count": 0,
-      "active": true
-    },
-    {
-      "id": "clicr_flt1r09xe",
-      "area_id": "area_003",
-      "name": "Entrance",
-      "flow_mode": "BIDIRECTIONAL",
-      "current_count": 0,
-      "active": true
-    },
-    {
-      "id": "clicr_l6brirynp",
-      "area_id": "area_003",
-      "name": "Exit",
-      "flow_mode": "BIDIRECTIONAL",
-      "current_count": 0,
-      "active": true
-    }
-  ],
-  "events": [],
-  "scanEvents": [],
-  "currentUser": {
-    "id": "usr_owner",
-    "name": "Harrison Owner",
-    "email": "owner@clicr.com",
-    "role": "OWNER",
-    "assigned_venue_ids": [],
-    "assigned_area_ids": [],
-    "assigned_clicr_ids": []
-  },
-  "bans": [],
-  "users": [
-    {
-      "id": "usr_owner",
-      "name": "Harrison Owner",
-      "email": "owner@clicr.com",
-      "phone": "555-0123",
-      "role": "OWNER",
-      "assigned_venue_ids": [],
-      "assigned_area_ids": [],
-      "assigned_clicr_ids": []
-    },
-    {
-      "id": "f4d24540-a8a9-4254-bb35-f96ac8352374",
-      "name": "hrw024",
-      "email": "hrw024@gmail.com",
-      "role": "OWNER",
-      "assigned_venue_ids": [],
-      "assigned_area_ids": [],
-      "assigned_clicr_ids": []
-    }
-  ],
-  "patrons": [
-    {
-      "id": "u9nvvf",
-      "first_name": "Random",
-      "last_name": "Patron",
-      "date_of_birth": "2000-01-01",
-      "id_type": "DRIVERS_LICENSE",
-      "id_number_last4": "1234",
-      "issuing_state_or_country": "CA",
-      "notes_private": "",
-      "created_at": "2026-01-31T05:53:09.619Z",
-      "updated_at": "2026-01-31T05:53:09.619Z"
-    }
-  ],
-  "patronBans": [
-    {
-      "id": "l9wev7",
-      "banned_person_id": "u9nvvf",
-      "business_id": "biz_001",
+      "role": "ENTRY/EXIT",
       "status": "ACTIVE",
-      "ban_type": "PERMANENT",
-      "start_datetime": "2026-01-31T05:53:09.619Z",
-      "end_datetime": null,
-      "reason_category": "POLICY_VIOLATION",
-      "reason_notes": "",
-      "created_by_user_id": "usr_owner",
-      "applies_to_all_locations": true,
-      "location_ids": [],
-      "created_at": "2026-01-31T05:53:09.619Z",
-      "updated_at": "2026-01-31T05:53:09.619Z"
-    }
-  ],
-  "banAuditLogs": [
+      "current_count": 0,
+      "battery_level": 100
+    },
     {
-      "id": "fnwrhzh",
-      "ban_id": "l9wev7",
-      "action": "CREATED",
-      "performed_by_user_id": "usr_owner",
-      "timestamp": "2026-01-31T05:53:09.619Z",
-      "details_json": {
-        "notes": "Initial Ban Creation"
-      }
+      "id": "4arjho",
+      "area_id": "a4lxzn",
+      "name": "Exit",
+      "role": "ENTRY/EXIT",
+      "status": "ACTIVE",
+      "current_count": 0,
+      "battery_level": 100
+    },
+    {
+      "id": "cyjrnf",
+      "area_id": "awqra",
+      "name": "Entrance",
+      "role": "ENTRY/EXIT",
+      "status": "ACTIVE",
+      "current_count": 0,
+      "battery_level": 100
+    },
+    {
+      "id": "7q2bsn",
+      "area_id": "awqra",
+      "name": "Exit",
+      "role": "ENTRY/EXIT",
+      "status": "ACTIVE",
+      "current_count": 0,
+      "battery_level": 100
     }
   ],
-  "banEnforcementEvents": [],
   "devices": [
     {
       "id": "dev_001",
@@ -208,34 +187,75 @@
       "device_name": "Main Entrance iPad",
       "serial_number": "SN123456",
       "status": "ACTIVE",
-      "created_at": "2026-01-31T06:18:54.622Z",
-      "updated_at": "2026-01-31T06:18:54.622Z"
-    },
-    {
-      "id": "lvp8rt",
-      "business_id": "biz_001",
-      "venue_id": "ven_001",
-      "area_id": null,
-      "device_type": "SCANNER",
-      "device_name": "New Scanner",
-      "serial_number": "SN-6317",
-      "status": "ACTIVE",
-      "created_at": "2026-01-31T07:05:43.288Z",
-      "updated_at": "2026-01-31T07:05:43.288Z"
-    },
-    {
-      "id": "kfas1i",
-      "business_id": "biz_001",
-      "venue_id": "ven_001",
-      "area_id": null,
-      "device_type": "SCANNER",
-      "device_name": "New Scanner",
-      "serial_number": "SN-480",
-      "status": "ACTIVE",
-      "created_at": "2026-01-31T07:05:43.746Z",
-      "updated_at": "2026-01-31T07:05:43.746Z"
+      "created_at": "2026-01-31T08:51:06.180Z",
+      "updated_at": "2026-01-31T08:51:06.180Z"
     }
   ],
   "capacityOverrides": [],
-  "venueAuditLogs": []
+  "venueAuditLogs": [],
+  "events": [],
+  "scanEvents": [],
+  "currentUser": {
+    "id": "usr_owner",
+    "name": "Harrison Owner",
+    "email": "owner@clicr.com",
+    "phone": "555-0123",
+    "role": "OWNER",
+    "assigned_venue_ids": [
+      "ven_001",
+      "ven_002"
+    ],
+    "assigned_area_ids": [
+      "area_001",
+      "area_002",
+      "area_003"
+    ],
+    "assigned_clicr_ids": [
+      "clicr_001",
+      "clicr_002"
+    ]
+  },
+  "users": [
+    {
+      "id": "usr_owner",
+      "name": "Harrison Owner",
+      "email": "owner@clicr.com",
+      "phone": "555-0123",
+      "role": "OWNER",
+      "assigned_venue_ids": [
+        "ven_001",
+        "ven_002"
+      ],
+      "assigned_area_ids": [
+        "area_001",
+        "area_002",
+        "area_003"
+      ],
+      "assigned_clicr_ids": [
+        "clicr_001",
+        "clicr_002"
+      ]
+    },
+    {
+      "id": "f4d24540-a8a9-4254-bb35-f96ac8352374",
+      "name": "hrw024",
+      "email": "hrw024@gmail.com",
+      "role": "OWNER",
+      "assigned_venue_ids": [
+        "x19ty"
+      ],
+      "assigned_area_ids": [
+        "awqra"
+      ],
+      "assigned_clicr_ids": [
+        "cyjrnf",
+        "7q2bsn"
+      ]
+    }
+  ],
+  "bans": [],
+  "patrons": [],
+  "patronBans": [],
+  "banAuditLogs": [],
+  "banEnforcementEvents": []
 }

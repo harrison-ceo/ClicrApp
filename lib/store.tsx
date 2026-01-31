@@ -46,6 +46,7 @@ type AppContextType = AppState & {
     removeUser: (userId: string) => Promise<void>;
 
     // Venue Management
+    updateBusiness: (updates: Partial<Business>) => Promise<void>;
     addVenue: (venue: Venue) => Promise<void>;
     updateVenue: (venue: Venue) => Promise<void>;
     addArea: (area: Area) => Promise<void>;
@@ -143,6 +144,17 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         const interval = setInterval(refreshState, 2000); // Poll every 2 seconds
         return () => clearInterval(interval);
     }, []);
+
+    const authFetch = async (body: any) => {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (user) {
+            headers['x-user-id'] = user.id;
+            headers['x-user-email'] = user.email || '';
+        }
+        return fetch('/api/sync', { method: 'POST', headers, body: JSON.stringify(body) });
+    };
 
     const recordEvent = async (data: Omit<CountEvent, 'id' | 'timestamp' | 'user_id' | 'business_id'>) => {
         if (!state.business) return;
@@ -322,11 +334,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const addVenue = async (venue: Venue) => {
         setState(prev => ({ ...prev, venues: [...prev.venues, venue] }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'ADD_VENUE', payload: venue })
-            });
+            const res = await authFetch({ action: 'ADD_VENUE', payload: venue });
             if (res.ok) {
                 const updatedDB = await res.json();
                 setState(prev => ({ ...prev, ...updatedDB }));
@@ -352,11 +360,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const addArea = async (area: Area) => {
         setState(prev => ({ ...prev, areas: [...prev.areas, area] }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'ADD_AREA', payload: area })
-            });
+            const res = await authFetch({ action: 'ADD_AREA', payload: area });
             if (res.ok) {
                 const updatedDB = await res.json();
                 setState(prev => ({ ...prev, ...updatedDB }));
@@ -384,11 +388,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const addClicr = async (clicr: Clicr) => {
         setState(prev => ({ ...prev, clicrs: [...prev.clicrs, clicr] }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'ADD_CLICR', payload: clicr })
-            });
+            const res = await authFetch({ action: 'ADD_CLICR', payload: clicr });
             if (res.ok) {
                 const updatedDB = await res.json();
                 setState(prev => ({ ...prev, ...updatedDB }));
@@ -579,8 +579,26 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
+    const updateBusiness = async (updates: Partial<Business>) => {
+        // Optimistic
+        if (state.business) {
+            setState(prev => ({
+                ...prev,
+                business: { ...prev.business!, ...updates }
+            }));
+        }
+
+        try {
+            const res = await authFetch({ action: 'UPDATE_BUSINESS', payload: updates });
+            if (res.ok) {
+                const updatedDB = await res.json();
+                setState(prev => ({ ...prev, ...updatedDB }));
+            }
+        } catch (error) { console.error("Failed to update business", error); }
+    };
+
     return (
-        <AppContext.Provider value={{ ...state, recordEvent, recordScan, resetCounts, addUser, updateUser, removeUser, addClicr, updateClicr, addVenue, updateVenue, addArea, updateArea, addDevice, updateDevice, addCapacityOverride, addVenueAuditLog, addBan, revokeBan, createPatronBan, updatePatronBan, recordBanEnforcement } as AppContextType}>
+        <AppContext.Provider value={{ ...state, recordEvent, recordScan, resetCounts, addUser, updateUser, removeUser, updateBusiness, addClicr, updateClicr, addVenue, updateVenue, addArea, updateArea, addDevice, updateDevice, addCapacityOverride, addVenueAuditLog, addBan, revokeBan, createPatronBan, updatePatronBan, recordBanEnforcement } as AppContextType}>
             {children}
         </AppContext.Provider>
     );
