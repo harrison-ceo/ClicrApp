@@ -6,8 +6,89 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 export const dynamic = 'force-dynamic';
 
 // --- HYDRATION HELPER ---
+// --- HYDRATION HELPER ---
 async function hydrateData(data: DBData): Promise<DBData> {
     try {
+        // 0. Fetch Structural Data (Source of Truth: Supabase)
+        const [
+            { data: sbBusinesses },
+            { data: sbVenues },
+            { data: sbAreas },
+            { data: sbProfiles }
+        ] = await Promise.all([
+            supabaseAdmin.from('businesses').select('*'),
+            supabaseAdmin.from('venues').select('*'),
+            supabaseAdmin.from('areas').select('*'),
+            supabaseAdmin.from('profiles').select('*')
+        ]);
+
+        if (sbBusinesses) {
+            data.business = sbBusinesses[0] as any; // Single tenant mode for now, or use first found
+        }
+
+        if (sbVenues) {
+            // Replace local venues with Supabase venues
+            data.venues = sbVenues.map((v: any) => ({
+                id: v.id,
+                business_id: v.business_id,
+                name: v.name,
+                address: v.address,
+                city: 'City', // Fallback as schema might differ slightly
+                state: 'State',
+                zip: '00000',
+                capacity: v.total_capacity,
+                timezone: v.timezone || 'UTC',
+
+                // Required fields by Type
+                status: 'ACTIVE',
+                capacity_enforcement_mode: 'WARN_ONLY',
+                created_at: v.created_at || new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            }));
+        }
+
+        if (sbAreas) {
+            data.areas = sbAreas.map((a: any) => ({
+                id: a.id,
+                venue_id: a.venue_id,
+                name: a.name,
+                default_capacity: a.capacity,
+                parent_area_id: a.parent_area_id,
+
+                // Required fields by Type
+                area_type: 'MAIN',
+                counting_mode: 'MANUAL',
+                is_active: true,
+                created_at: a.created_at || new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            }));
+        }
+
+        // Sync Users & Permissions
+        if (sbProfiles) {
+            sbProfiles.forEach((p: any) => {
+                const existing = data.users.find(u => u.id === p.id);
+                const businessVenues = data.venues.filter(v => v.business_id === p.business_id).map(v => v.id);
+                // Users in a business get access to all its venues for now (Owner/Manager model)
+
+                const userObj: User = {
+                    id: p.id,
+                    name: p.full_name || p.email?.split('@')[0] || 'User',
+                    email: p.email || existing?.email || '',
+                    role: p.role,
+                    assigned_venue_ids: businessVenues,
+                    assigned_area_ids: [], // Implicit access
+                    assigned_clicr_ids: []
+                };
+
+                if (existing) {
+                    Object.assign(existing, userObj);
+                } else {
+                    data.users.push(userObj);
+                }
+            });
+        }
+
         // 1. Fetch Occupancy Events
         const { data: occEvents, error: occError } = await supabaseAdmin
             .from('occupancy_events')
@@ -70,6 +151,25 @@ async function hydrateData(data: DBData): Promise<DBData> {
 
         if (!devError && devices) {
             // Update local Clicrs with persisted names/configs
+            // Also merge new devices from DB if they don't exist locally
+            devices.forEach((d: any) => {
+                const exists = data.clicrs.find(c => c.id === d.id);
+                if (!exists && d.device_type === 'COUNTER_ONLY') {
+                    data.clicrs.push({
+                        id: d.id,
+                        area_id: d.area_id,
+                        name: d.name,
+                        current_count: 0,
+                        flow_mode: 'BIDIRECTIONAL',
+                        active: true,
+                        button_config: d.config?.button_config || {
+                            left: { label: 'IN', delta: 1, color: 'green' },
+                            right: { label: 'OUT', delta: -1, color: 'red' }
+                        }
+                    });
+                }
+            });
+
             data.clicrs = data.clicrs.map((c: Clicr) => {
                 const match = devices.find((d: any) => d.id === c.id);
                 if (match) {
