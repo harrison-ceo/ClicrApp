@@ -190,7 +190,29 @@ export async function POST(request: Request) {
                 break;
 
             case 'RECORD_SCAN':
-                updatedData = addScan(payload as IDScanEvent);
+                const scan = payload as IDScanEvent;
+                // PERSIST: Save scan to Supabase
+                try {
+                    await supabaseAdmin.from('scan_events').insert({
+                        business_id: 'biz_001',
+                        venue_id: scan.venue_id,
+                        timestamp: new Date(scan.timestamp).toISOString(),
+                        scan_result: scan.scan_result,
+                        age: scan.age,
+                        gender: scan.sex, // Map sex -> gender
+                        zip_code: scan.zip_code,
+
+                        // PII Fields
+                        first_name: scan.first_name,
+                        last_name: scan.last_name,
+                        dob: scan.dob,
+                        id_number: scan.id_number,
+                        issuing_state: scan.issuing_state,
+                        city: scan.city,
+                        address_street: scan.address_street
+                    });
+                } catch (e) { console.error("Scan Persistence Failed", e); }
+                updatedData = addScan(scan);
                 break;
 
             case 'RESET_COUNTS':
