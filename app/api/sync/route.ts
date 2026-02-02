@@ -18,7 +18,12 @@ export async function GET(request: Request) {
             .from('occupancy_events')
             .select('*')
             .order('timestamp', { ascending: false })
-            .limit(1000); // Reasonable limit for sync
+            .order('timestamp', { ascending: false })
+            .limit(5000); // Increased limit for better accuracy
+
+        if (occError) {
+            console.error("Supabase Occupancy Fetch Error:", occError);
+        }
 
         if (!occError && occEvents) {
             // A. Calculate Live Counts per Clicr (using session_id as clicr_id)
