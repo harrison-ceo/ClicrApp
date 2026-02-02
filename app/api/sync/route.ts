@@ -214,12 +214,13 @@ export async function POST(request: Request) {
                         id: clicr.id,
                         name: clicr.name,
                         business_id: 'biz_001', // Default falllback
-                        device_type: 'COUNTER',
+                        device_type: 'COUNTER_ONLY',
                         config: { button_config: clicr.button_config }
                     });
                 } catch (e) { console.error("Update Clicr Persistence Failed", e); }
                 updatedData = updateClicr(clicr);
                 break;
+
             case 'UPDATE_AREA': updatedData = updateArea(payload as Area); break;
             case 'ADD_VENUE': updatedData = addVenue(payload); break;
             case 'UPDATE_VENUE': updatedData = updateVenue(payload); break;
