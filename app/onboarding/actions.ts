@@ -39,9 +39,10 @@ export async function completeOnboarding(formData: FormData) {
     }
 
     // 3. Create Profile (Admin Write - bypass RLS for now as user might not match policy yet)
+    // Use Upsert to handle retries (if profile exists, update it to point to new business)
     const { error: profileError } = await supabaseAdmin
         .from('profiles')
-        .insert({
+        .upsert({
             id: user.id,
             business_id: business.id,
             role: 'OWNER',
