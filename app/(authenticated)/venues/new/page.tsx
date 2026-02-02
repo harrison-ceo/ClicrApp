@@ -106,10 +106,9 @@ export default function NewVenuePage() {
             id: newClicrId,
             area_id: areaId,
             name: name,
-            role: 'ENTRY/EXIT', // Default generic role
-            status: 'ACTIVE',
-            current_count: 0,
-            battery_level: 100
+            flow_mode: 'BIDIRECTIONAL',
+            active: true,
+            current_count: 0
         };
         await addClicr(clicr);
         setCreatedClicrs([...createdClicrs, clicr]);
@@ -210,7 +209,7 @@ export default function NewVenuePage() {
                             <div key={area.id} className="flex items-center justify-between bg-slate-800/50 p-4 rounded-lg border border-slate-700">
                                 <div>
                                     <h4 className="font-bold text-white">{area.name}</h4>
-                                    <span className="text-xs text-slate-400">Cap: {area.capacity}</span>
+                                    <span className="text-xs text-slate-400">Cap: {area.default_capacity}</span>
                                 </div>
                                 <div className="text-green-500 bg-green-500/10 px-2 py-1 rounded text-xs font-bold flex items-center gap-1">
                                     <Check className="w-3 h-3" /> Added
