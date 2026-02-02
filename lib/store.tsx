@@ -131,6 +131,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 // However, if we just logged in, we might need to force the state.currentUser to match
                 // We trust the API to return the "hydrated" user object for this ID.
 
+                // Avoid overwriting optimistic state if a write started while we were fetching
+                if (isWritingRef.current) {
+                    console.log("Skipping sync update due to active write (Pre-setState)");
+                    return;
+                }
+
                 setState(prev => ({
                     ...prev,
                     ...data,
