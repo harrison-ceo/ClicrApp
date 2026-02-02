@@ -144,8 +144,9 @@ export default function DashboardPage() {
                                     <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Area Status</h4>
                                     {stats.areas.length === 0 && <p className="text-xs text-slate-600 italic">No areas configured.</p>}
                                     {stats.areas.map(area => {
-                                        const cap = area.default_capacity;
-                                        const pct = cap ? (area.currentOccupancy / cap) * 100 : 0;
+                                        // Handle fallback for legacy 'capacity' field
+                                        const cap = area.default_capacity || (area as any).capacity || 0;
+                                        const pct = cap > 0 ? (area.currentOccupancy / cap) * 100 : 0;
                                         const isHigh = pct > 90;
 
                                         return (

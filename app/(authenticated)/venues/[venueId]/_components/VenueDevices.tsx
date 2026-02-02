@@ -16,8 +16,8 @@ import { cn } from '@/lib/utils'; // Assuming utils exists
 
 export default function VenueDevices({ venueId }: { venueId: string }) {
     const { devices, clicrs, areas, addDevice, updateDevice } = useApp();
-    const venueDevices = devices.filter(d => d.venue_id === venueId);
-    const venueClicrs = clicrs.filter(c => areas.find(a => a.id === c.area_id)?.venue_id === venueId);
+    const venueDevices = (devices || []).filter(d => d.venue_id === venueId);
+    const venueClicrs = (clicrs || []).filter(c => (areas || []).find(a => a.id === c.area_id)?.venue_id === venueId);
 
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
 

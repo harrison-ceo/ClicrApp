@@ -73,9 +73,14 @@ export default function NewVenuePage() {
             id: newAreaId,
             venue_id: venueId,
             name: areaInput.name,
-            capacity: areaInput.capacity,
+            default_capacity: areaInput.capacity, // Correct field
+            area_type: 'MAIN', // Default
+            counting_mode: 'BOTH',
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
             current_count: 0
-        };
+        } as Area; // Casting to handle any loose legacy props
         await addArea(area);
         setCreatedAreas([...createdAreas, area]);
         setAreaInput({ name: '', capacity: 100 });

@@ -111,6 +111,10 @@ export type Clicr = {
     flow_mode: FlowMode;
     current_count: number; // Cached value
     active: boolean;
+    button_config?: {
+        label_a: string; // Defaults to "MALE"
+        label_b: string; // Defaults to "FEMALE"
+    };
 };
 
 export type DeviceType = 'COUNTER' | 'SCANNER' | 'COMBO';
@@ -258,4 +262,29 @@ export type BanEnforcementEvent = {
     notes?: string;
     // Snapshot of person details for the record
     person_snapshot_name?: string;
+};
+
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export type SupportMessage = {
+    id: string;
+    ticket_id: string;
+    sender_id: string; // User ID or 'SYSTEM' or 'SUPPORT_AGENT'
+    message_text: string;
+    timestamp: string;
+    is_internal: boolean; // If true, only visible to support staff
+};
+
+export type SupportTicket = {
+    id: string;
+    business_id: string;
+    user_id: string; // Creator
+    subject: string;
+    status: TicketStatus;
+    priority: TicketPriority;
+    category: 'TECHNICAL' | 'BILLING' | 'FEATURE_REQUEST' | 'OTHER';
+    created_at: string;
+    updated_at: string;
+    messages: SupportMessage[];
 };

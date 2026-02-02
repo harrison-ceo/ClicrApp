@@ -30,7 +30,7 @@ const STEPS: { id: OnboardingStep; label: string; icon: any }[] = [
 
 export default function OnboardingWizard() {
     const router = useRouter();
-    const { venues, areas, createVenue, createArea } = useApp();
+    const { venues, areas, addVenue, addArea } = useApp();
 
     // State
     const [currentStep, setCurrentStep] = useState<OnboardingStep>('PROFILE');

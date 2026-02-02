@@ -131,7 +131,17 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 // However, if we just logged in, we might need to force the state.currentUser to match
                 // We trust the API to return the "hydrated" user object for this ID.
 
-                setState(prev => ({ ...prev, ...data, isLoading: false }));
+                setState(prev => ({
+                    ...prev,
+                    ...data,
+                    // Defensive: Ensure arrays are arrays
+                    venues: data.venues || [],
+                    areas: data.areas || [],
+                    clicrs: data.clicrs || [],
+                    events: data.events || [],
+                    scanEvents: data.scanEvents || [],
+                    isLoading: false
+                }));
             }
         } catch (error) {
             console.error("Failed to sync state", error);

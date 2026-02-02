@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { IDScanEvent, BanEnforcementEvent } from '@/lib/types';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { parseAAMVA } from '@/lib/aamva';
+import { submitScanAction } from '@/app/actions/scan';
 
 // Mock data generator for simulation
 const generateMockID = () => {
@@ -44,7 +45,8 @@ const generateMockID = () => {
 };
 
 export default function ScannerPage() {
-    const { venues, recordScan, patrons, patronBans, recordBanEnforcement, currentUser } = useApp();
+    // recordScan removed from useApp context because we use Server Action now
+    const { venues, patrons, patronBans, recordBanEnforcement, currentUser } = useApp();
     const [selectedVenueId, setSelectedVenueId] = useState<string>(venues[0]?.id || '');
     const [isScanning, setIsScanning] = useState(false);
     const [lastScan, setLastScan] = useState<IDScanEvent | null>(null);
@@ -181,7 +183,11 @@ export default function ScannerPage() {
             id_number: parsed.idNumber || undefined
         };
 
-        recordScan(scanEvent);
+        // Call Server Action
+        const scanResultObj = { status: scanResult as any, message: 'Processed via Scanner' };
+        submitScanAction(selectedVenueId, scanResultObj, parsed);
+
+        // Update Local State for UI
         setLastScan({ ...scanEvent, id: 'temp', timestamp: Date.now() });
     };
 

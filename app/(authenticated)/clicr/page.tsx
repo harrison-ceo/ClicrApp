@@ -14,11 +14,11 @@ export default function ClicrListPage() {
     }
 
     // Grouping Logic
-    const venuesWithContent = venues.map(venue => {
-        const venueAreas = areas.filter(a => a.venue_id === venue.id);
+    const venuesWithContent = (venues || []).map(venue => {
+        const venueAreas = (areas || []).filter(a => a.venue_id === venue.id);
 
         const areasWithClicrs = venueAreas.map(area => {
-            const areaClicrs = clicrs.filter(c => c.area_id === area.id);
+            const areaClicrs = (clicrs || []).filter(c => c.area_id === area.id);
             return { ...area, clicrs: areaClicrs };
         });
 
@@ -51,7 +51,7 @@ export default function ClicrListPage() {
                             </div>
 
                             {/* Clicrs Grid */}
-                            {area.clicrs.length > 0 ? (
+                            {(area.clicrs || []).length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                     {area.clicrs.map(clicr => (
                                         <ClicrCard key={clicr.id} clicr={clicr} />
@@ -75,6 +75,8 @@ export default function ClicrListPage() {
 }
 
 function ClicrCard({ clicr }: { clicr: any }) {
+    const flowMode = clicr.flow_mode || (clicr.role === 'ENTRY/EXIT' ? 'BIDIRECTIONAL' : 'BIDIRECTIONAL');
+
     return (
         <Link
             href={`/clicr/${clicr.id}`}
@@ -92,11 +94,11 @@ function ClicrCard({ clicr }: { clicr: any }) {
 
                     <div className={cn(
                         "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider",
-                        clicr.flow_mode === 'IN_ONLY' ? "bg-emerald-500/10 text-emerald-400" :
-                            clicr.flow_mode === 'OUT_ONLY' ? "bg-amber-500/10 text-amber-400" :
+                        flowMode === 'IN_ONLY' ? "bg-emerald-500/10 text-emerald-400" :
+                            flowMode === 'OUT_ONLY' ? "bg-amber-500/10 text-amber-400" :
                                 "bg-blue-500/10 text-blue-400"
                     )}>
-                        {clicr.flow_mode.replace('_', ' ')}
+                        {flowMode.replace('_', ' ')}
                     </div>
                 </div>
 

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import { Business, Venue, Area, Clicr, CountEvent, User, IDScanEvent, BanRecord, BannedPerson, PatronBan, BanEnforcementEvent, BanAuditLog, Device, CapacityOverride, VenueAuditLog } from './types';
+import { Business, Venue, Area, Clicr, CountEvent, User, IDScanEvent, BanRecord, BannedPerson, PatronBan, BanEnforcementEvent, BanAuditLog, Device, CapacityOverride, VenueAuditLog, SupportTicket, SupportMessage } from './types';
 
 
 const DB_PATH = path.join(process.cwd(), 'data', 'db.json');
@@ -100,6 +100,9 @@ type DBData = {
     patronBans: PatronBan[];
     banAuditLogs: BanAuditLog[];
     banEnforcementEvents: BanEnforcementEvent[];
+
+    // Support
+    tickets: SupportTicket[];
 };
 
 const INITIAL_DB: DBData = {
@@ -119,6 +122,7 @@ const INITIAL_DB: DBData = {
     patronBans: [],
     banAuditLogs: [],
     banEnforcementEvents: [],
+    tickets: [],
 };
 
 function ensureDir() {
@@ -144,6 +148,7 @@ export function readDB(): DBData {
         if (!parsed.patronBans) parsed.patronBans = [];
         if (!parsed.banAuditLogs) parsed.banAuditLogs = [];
         if (!parsed.banEnforcementEvents) parsed.banEnforcementEvents = [];
+        if (!parsed.tickets) parsed.tickets = [];
 
         // Venues Features
         if (!parsed.devices) parsed.devices = INITIAL_DEVICES;
@@ -536,4 +541,46 @@ export function factoryResetDB() {
         console.error("Factory Reset Error", error);
         throw error;
     }
+}
+
+// --- SUPPORT TICKET SYSTEM ---
+
+export function createTicket(ticket: SupportTicket) {
+    const data = readDB();
+    data.tickets.unshift(ticket);
+    writeDB(data);
+    return data;
+}
+
+export function addMessageToTicket(ticketId: string, message: SupportMessage) {
+    const data = readDB();
+    const index = data.tickets.findIndex(t => t.id === ticketId);
+    if (index !== -1) {
+        data.tickets[index].messages.push(message);
+        data.tickets[index].updated_at = new Date().toISOString();
+        writeDB(data);
+    }
+    return data;
+}
+
+export function updateTicketStatus(ticketId: string, status: SupportTicket['status']) {
+    const data = readDB();
+    const index = data.tickets.findIndex(t => t.id === ticketId);
+    if (index !== -1) {
+        data.tickets[index].status = status;
+        data.tickets[index].updated_at = new Date().toISOString();
+        writeDB(data);
+    }
+    return data;
+}
+
+export function getTickets(userId?: string) {
+    const data = readDB();
+    // Sort buy newest first
+    const sorted = data.tickets.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    if (userId) {
+        return sorted.filter(t => t.user_id === userId);
+    }
+    return sorted;
 }

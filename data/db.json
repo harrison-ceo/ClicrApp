@@ -63,7 +63,7 @@
       "city": "Savannah",
       "state": "GA",
       "default_capacity_total": 45,
-      "capacity_enforcement_mode": "WARN_ONLY",
+      "capacity_enforcement_mode": "HARD_STOP",
       "status": "ACTIVE",
       "timezone": "America/New_York",
       "created_at": "2026-01-31T08:58:05.541Z",
@@ -112,14 +112,14 @@
       "id": "a4lxzn",
       "venue_id": "fqyr2f",
       "name": "Lounge",
-      "capacity": 45,
+      "default_capacity": 45,
       "current_count": 0
     },
     {
       "id": "awqra",
       "venue_id": "x19ty",
       "name": "Lounge",
-      "capacity": 45,
+      "default_capacity": 45,
       "current_count": 0
     }
   ],
@@ -165,7 +165,11 @@
       "role": "ENTRY/EXIT",
       "status": "ACTIVE",
       "current_count": 0,
-      "battery_level": 100
+      "battery_level": 100,
+      "button_config": {
+        "label_a": "MALE",
+        "label_b": "FEMALE"
+      }
     },
     {
       "id": "7q2bsn",
@@ -257,5 +261,70 @@
   "patrons": [],
   "patronBans": [],
   "banAuditLogs": [],
-  "banEnforcementEvents": []
+  "banEnforcementEvents": [],
+  "tickets": [
+    {
+      "id": "03a2e91d-4eed-4be8-9742-9647f8ff1640",
+      "business_id": "bus_1",
+      "user_id": "user_1",
+      "subject": "tets",
+      "status": "OPEN",
+      "priority": "MEDIUM",
+      "category": "TECHNICAL",
+      "created_at": "2026-02-02T18:34:23.343Z",
+      "updated_at": "2026-02-02T18:34:23.343Z",
+      "messages": [
+        {
+          "id": "386e89ef-e185-4897-b83f-246d980b9cf2",
+          "ticket_id": "03a2e91d-4eed-4be8-9742-9647f8ff1640",
+          "sender_id": "user_1",
+          "message_text": "test",
+          "timestamp": "2026-02-02T18:34:23.343Z",
+          "is_internal": false
+        }
+      ]
+    },
+    {
+      "id": "bfcf3f3c-f16d-40d4-b3e2-e5ec44201f0e",
+      "business_id": "bus_1",
+      "user_id": "user_1",
+      "subject": "Test",
+      "status": "OPEN",
+      "priority": "MEDIUM",
+      "category": "TECHNICAL",
+      "created_at": "2026-02-02T18:29:45.214Z",
+      "updated_at": "2026-02-02T18:29:45.214Z",
+      "messages": [
+        {
+          "id": "00443b8f-743a-436f-978b-af4fabf92969",
+          "ticket_id": "bfcf3f3c-f16d-40d4-b3e2-e5ec44201f0e",
+          "sender_id": "user_1",
+          "message_text": "Test",
+          "timestamp": "2026-02-02T18:29:45.214Z",
+          "is_internal": false
+        }
+      ]
+    },
+    {
+      "id": "f17d1f3c-99e2-400f-9020-bec49928ac57",
+      "business_id": "bus_1",
+      "user_id": "user_1",
+      "subject": "Billing",
+      "status": "OPEN",
+      "priority": "MEDIUM",
+      "category": "TECHNICAL",
+      "created_at": "2026-02-02T18:27:52.422Z",
+      "updated_at": "2026-02-02T18:27:52.422Z",
+      "messages": [
+        {
+          "id": "9c5366cd-7b84-40d8-8096-2843960e2950",
+          "ticket_id": "f17d1f3c-99e2-400f-9020-bec49928ac57",
+          "sender_id": "user_1",
+          "message_text": "Test",
+          "timestamp": "2026-02-02T18:27:52.422Z",
+          "is_internal": false
+        }
+      ]
+    }
+  ]
 }

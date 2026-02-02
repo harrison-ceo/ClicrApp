@@ -23,8 +23,10 @@ const NAV_ITEMS = [
     { label: 'Venues', href: '/venues', icon: MapPin },
     { label: 'Areas', href: '/areas', icon: Layers },
     { label: 'Clicr', href: '/clicr', icon: MousePointer2 },
+    { label: 'Guests', href: '/guests', icon: ScanFace },
     { label: 'Banning', href: '/banning', icon: Ban },
     { label: 'Reports', href: '/reports', icon: BarChart3 },
+    { label: 'Support', href: '/support', icon: Building2 },
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {

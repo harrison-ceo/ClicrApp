@@ -31,21 +31,8 @@ const generateMockID = () => {
 export default function ClicrCounterPage() {
     const { id } = useParams();
     const router = useRouter();
-    const { clicrs, areas, events, recordEvent, recordScan, resetCounts, isLoading, patrons, patronBans, updateClicr } = useApp();
+    const { clicrs, areas, events, recordEvent, recordScan, resetCounts, isLoading } = useApp();
     const clicr = (clicrs || []).find((c) => c.id === id);
-    const [showCameraScanner, setShowCameraScanner] = useState(false);
-
-    // Flashlight State (Moved to top to avoid Hook Rule violation)
-    const [torchOn, setTorchOn] = useState(false);
-
-    // cleanup torch on unmount
-    useEffect(() => {
-        return () => {
-            if ((window as any).localStream) {
-                (window as any).localStream.getTracks().forEach((t: any) => t.stop());
-            }
-        };
-    }, []);
 
     // --- SPLIT VIEW STATE ---
     const [layoutMode, setLayoutMode] = useState<'SINGLE' | 'SPLIT'>('SINGLE');
@@ -85,46 +72,15 @@ export default function ClicrCounterPage() {
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [bulkValue, setBulkValue] = useState(0);
 
-    // --- CUSTOM BUTTON LABELS ---
-    const [customLabels, setCustomLabels] = useState<{ label_a: string, label_b: string }>({
-        label_a: 'MALE',
-        label_b: 'FEMALE'
-    });
-    const [showConfigModal, setShowConfigModal] = useState(false);
-    const [soloMode, setSoloMode] = useState(false);
-    const [draftSoloMode, setDraftSoloMode] = useState(false);
-    const [editLabels, setEditLabels] = useState<{ label_a: string, label_b: string }>({ label_a: '', label_b: '' });
-
-    // Classification Mode State
-    const [classifyMode, setClassifyMode] = useState(false);
-    const [pendingScan, setPendingScan] = useState<IDScanEvent | null>(null);
-
     // Scanner State
     const [lastScan, setLastScan] = useState<IDScanEvent | null>(null);
     const [scannerInput, setScannerInput] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // Track modal state via ref to avoid listener re-binding
-    const isModalOpenRef = useRef(false);
-    useEffect(() => {
-        isModalOpenRef.current = showBulkModal || showConfigModal;
-    }, [showBulkModal, showConfigModal]);
-
-    // Force focus when modals close
-    useEffect(() => {
-        if (!showBulkModal && !showConfigModal) {
-            const timer = setTimeout(() => inputRef.current?.focus(), 50);
-            return () => clearTimeout(timer);
-        }
-    }, [showBulkModal, showConfigModal]);
-
     // Focus management for hardware scanner
     useEffect(() => {
         // Global keydown listener to catch hardware scans even if focus is lost
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Check ref to see if we should ignore (modal open)
-            if (isModalOpenRef.current) return;
-
             // Ignore if user is typing in a real input field (like bulk modal)
             const target = e.target as HTMLElement;
             if (target.tagName === 'INPUT' && target !== inputRef.current) return;
@@ -137,87 +93,34 @@ export default function ClicrCounterPage() {
 
         window.addEventListener('keydown', handleKeyDown);
 
-        // Initial focus
-        const timer = setTimeout(() => inputRef.current?.focus(), 100);
+        if (!showBulkModal) {
+            const timer = setTimeout(() => inputRef.current?.focus(), 100);
+            return () => {
+                clearTimeout(timer);
+                window.removeEventListener('keydown', handleKeyDown);
+            };
+        }
+        return () => window.removeEventListener('keydown', handleKeyDown);
 
-        return () => {
-            clearTimeout(timer);
-            window.removeEventListener('keydown', handleKeyDown);
-        };
-
-    }, []); // Run once on mount! Stable listener.
+    }, [showBulkModal, lastScan]);
 
     useEffect(() => {
         const handleBlur = () => {
-            if (!showBulkModal && !showConfigModal) {
+            if (!showBulkModal) {
                 setTimeout(() => inputRef.current?.focus(), 100);
             }
         };
         const inputEl = inputRef.current;
         inputEl?.addEventListener('blur', handleBlur);
         return () => inputEl?.removeEventListener('blur', handleBlur);
-    }, [showBulkModal, showConfigModal]);
+    }, [showBulkModal]);
 
-
-    // Load from local storage or Server on mount/update
-    useEffect(() => {
-        // Prioritize SERVER config for sync
-        if (clicr?.button_config) {
-            setCustomLabels(clicr.button_config);
-        } else {
-            // Fallback to local if server has nothing (legacy)
-            const saved = localStorage.getItem(`clicr_config_${id}`);
-            if (saved) {
-                try {
-                    setCustomLabels(JSON.parse(saved));
-                } catch (e) { console.error("Failed to parse saved config"); }
-            }
-        }
-
-        // Load Layout Mode
-        const savedMode = localStorage.getItem(`clicr_layout_mode_${id}`);
-        if (savedMode === 'SOLO') {
-            setSoloMode(true);
-        }
-
-        // Load Classify Mode
-        const savedClassify = localStorage.getItem(`clicr_classify_mode_${id}`);
-        if (savedClassify === 'true') {
-            setClassifyMode(true);
-        }
-    }, [id, clicr]);
-
-    const saveLabels = async (a: string, b: string) => {
-        const newLabels = { label_a: a.toUpperCase(), label_b: b.toUpperCase() };
-        setCustomLabels(newLabels);
-
-        // Save to Local Storage (Legacy/Offline backup)
-        localStorage.setItem(`clicr_config_${id}`, JSON.stringify(newLabels));
-
-        // Save to Server (Syncs to other devices)
-        if (clicr) {
-            await updateClicr({
-                ...clicr,
-                button_config: newLabels
-            });
-        }
-
-        setShowConfigModal(false);
-    };
 
     if (isLoading) return <div className="p-8 text-white">Connecting...</div>;
     if (!clicr) return <div className="p-8 text-white">Clicr not found</div>;
 
     const handleGenderTap = (gender: 'M' | 'F', delta: number) => {
         if (navigator.vibrate) navigator.vibrate(50);
-
-        // If we have a pending classification, clearing it is the priority
-        // We assume this tap IS the classification for that scan
-        if (pendingScan && delta > 0) {
-            // Count it!
-            setPendingScan(null);
-            setLastScan(null); // Clear the visual overlay too
-        }
 
         // 1. Record the Count Event (Changes Occupancy) with Gender
         recordEvent({
@@ -227,21 +130,13 @@ export default function ClicrCounterPage() {
             delta: delta,
             flow_type: delta > 0 ? 'IN' : 'OUT',
             gender: gender,
-            event_type: 'TAP', // Ideally 'SCAN_CLASSIFIED' but keeping simple for now
+            event_type: 'TAP',
             idempotency_key: Math.random().toString(36)
         });
 
         // 2. If it's an entry (Delta > 0), also log a "Scan" for the record
         // (Optional: remove this if we rely solely on events for graph, but good for ID log consistency)
-        // NOTE: In classify mode, scan is already logged upstream. In normal mode, we might double log if not careful.
-        // But the previous requirement was "log a Scan" here. 
-        // Improvement: Only record scan HERE if it wasn't already recorded by the scanner process.
-        // However, for consistency with existing codebase, let's keep it simple.
-        // The upstream 'recordScan' logs the physical scan. This 'recordScan' here seems to be simulating a scan for manual taps?
-        // Actually, looking at original code: "If delta > 0... also log a Scan". This implies manual taps generate artificial scan records?
-        // Let's preserve existing logic for manual taps, but AVOID it if we just processed a real scan (to avoid double scan logs).
-
-        if (delta > 0 && !pendingScan) {
+        if (delta > 0) {
             recordScan({
                 venue_id: venueId || 'ven_001',
                 scan_result: 'ACCEPTED',
@@ -298,9 +193,8 @@ export default function ClicrCounterPage() {
     };
 
     // --- ADVANCED SCANNER LOGIC ---
-    // (Hooks moved to top)
-
-    // Unified Scan Processor (The Brain)
+    const { patrons, patronBans } = useApp(); // Get Ban DB
+    const [showCameraScanner, setShowCameraScanner] = useState(false);
 
     // Unified Scan Processor (The Brain)
     const processScan = (parsed: ReturnType<typeof parseAAMVA>) => {
@@ -341,29 +235,18 @@ export default function ClicrCounterPage() {
 
         // 5. Automatic Count (if Accepted)
         if (result.status === 'ACCEPTED') {
-            if (classifyMode) {
-                // CLASSIFY MODE: Require manual tap to count
-                setPendingScan({
-                    ...scanEvent,
-                    id: 'temp_pending',
-                    timestamp: Date.now()
-                });
-                if (navigator.vibrate) navigator.vibrate([30, 50, 30]); // Distinct vibrate
-            } else {
-                // NORMAL MODE: Auto-count
-                recordEvent({
-                    venue_id: venueId || 'ven_001',
-                    area_id: clicr.area_id,
-                    clicr_id: clicr.id,
-                    delta: 1,
-                    flow_type: 'IN',
-                    gender: parsed.sex || 'M',
-                    event_type: 'SCAN',
-                    idempotency_key: Math.random().toString(36)
-                });
-                // Haptic Feedback
-                if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
-            }
+            recordEvent({
+                venue_id: venueId || 'ven_001',
+                area_id: clicr.area_id,
+                clicr_id: clicr.id,
+                delta: 1,
+                flow_type: 'IN',
+                gender: parsed.sex || 'M',
+                event_type: 'SCAN',
+                idempotency_key: Math.random().toString(36)
+            });
+            // Haptic Feedback
+            if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
         } else {
             // Error Haptic
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
@@ -433,94 +316,89 @@ export default function ClicrCounterPage() {
     };
 
 
-
-    // Flashlight Toggle Function
-    const toggleTorch = async () => {
-        try {
-            if (torchOn) {
-                // Turn OFF
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-                const track = stream.getVideoTracks()[0];
-                await track.applyConstraints({ advanced: [{ torch: false }] as any });
-                track.stop(); // Stop stream to release camera
-                setTorchOn(false);
-            } else {
-                // Turn ON
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-                const track = stream.getVideoTracks()[0];
-                // Check if torch is supported
-                const capabilities = track.getCapabilities() as any;
-                if (!capabilities.torch) {
-                    alert("Flashlight not supported on this device.");
-                    track.stop();
-                    return;
-                }
-                await track.applyConstraints({ advanced: [{ torch: true }] as any });
-                // We must keep the track alive for torch to stay on? 
-                // Usually yes. We'll store it in a ref if strictly needed, but let's see if simple track active works.
-                // Actually, stopping the track turns off the torch usually.
-                // So we need to KEEP the stream active. 
-                // But we don't want to show the video element if we just want the torch.
-                // So we just hold the stream in a ref.
-                (window as any).localStream = stream; // Hacky globals or just let it float? better use Ref.
-                setTorchOn(true);
-            }
-        } catch (err) {
-            console.error("Flashlight error", err);
-            alert("Could not access flashlight. Ensure camera permissions are granted.");
-            setTorchOn(false);
-        }
-    };
-
     return (
-        <div className="flex flex-col h-[100vh] bg-black relative overflow-hidden" onClick={() => inputRef.current?.focus()}>
+        <div className="flex flex-col h-[calc(100vh-100px)] -mt-4 bg-black relative" onClick={() => inputRef.current?.focus()}>
 
             <form onSubmit={handleHardwareSubmit} className="opacity-0 absolute top-0 left-0 w-0 h-0 overflow-hidden">
                 <input ref={inputRef} value={scannerInput} onChange={(e) => setScannerInput(e.target.value)} autoFocus autoComplete="off" type="text" />
                 <button type="submit">Scan</button>
             </form>
 
-            {/* Top Bar - No margin bottom, handled by flex gap */}
-            <div className="flex bg-black pt-4 pb-2 px-4 items-center justify-between z-30 relative shrink-0">
-                <div className="flex items-center gap-2">
-                    <button onClick={() => router.push('/clicr')} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors">
-                        <ArrowLeft className="w-6 h-6" />
-                    </button>
-                    {/* Config Trigger */}
-                    <button onClick={() => { setEditLabels(customLabels); setDraftSoloMode(soloMode); setShowConfigModal(true); }} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors">
-                        <Settings2 className="w-5 h-5" />
-                    </button>
-                </div>
-
+            {/* Top Bar */}
+            <div className="flex items-center justify-between mb-2 z-30 relative">
+                <button onClick={() => router.back()} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors">
+                    <ArrowLeft className="w-6 h-6" />
+                </button>
                 <div className="text-center">
                     <h2 className="text-lg font-bold text-white leading-none">{clicr.name}</h2>
                     {layoutMode === 'SINGLE' && <span className="text-xs text-slate-500 font-mono">LIVE SYNC ACTIVE</span>}
                     {layoutMode === 'SPLIT' && <span className="text-xs text-primary font-mono font-bold">SPLIT VIEW</span>}
                 </div>
 
-                {/* Right side spacer to keep title centered */}
-                <div className="w-[72px]"></div>
+                {/* Layout Toggle */}
+                <div className="relative">
+                    <button
+                        onClick={() => setShowLayoutMenu(!showLayoutMenu)}
+                        className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors"
+                    >
+                        <Layout className="w-6 h-6" />
+                    </button>
+
+                    <AnimatePresence>
+                        {showLayoutMenu && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="absolute right-0 top-full mt-2 w-56 bg-[#0f1218] border border-slate-800 rounded-xl shadow-2xl overflow-hidden z-50 p-2"
+                            >
+                                <div className="text-xs font-bold text-slate-500 uppercase tracking-widest px-3 py-2">Screen Layout</div>
+                                <button
+                                    onClick={() => { setLayoutMode('SINGLE'); setShowLayoutMenu(false); }}
+                                    className={cn("w-full flex items-center justify-between px-3 py-3 rounded-lg text-sm font-bold transition-colors", layoutMode === 'SINGLE' ? "bg-primary/10 text-primary" : "text-white hover:bg-slate-800")}
+                                >
+                                    <span>Single View</span>
+                                    {layoutMode === 'SINGLE' && <Check className="w-4 h-4" />}
+                                </button>
+                                <button
+                                    onClick={() => activateSplit('INDEPENDENT')}
+                                    className={cn("w-full flex items-center justify-between px-3 py-3 rounded-lg text-sm font-bold transition-colors", (layoutMode === 'SPLIT' && splitConfig.mode === 'INDEPENDENT') ? "bg-primary/10 text-primary" : "text-white hover:bg-slate-800")}
+                                >
+                                    <span>Split (2 Areas)</span>
+                                    {(layoutMode === 'SPLIT' && splitConfig.mode === 'INDEPENDENT') && <Check className="w-4 h-4" />}
+                                </button>
+                                <button
+                                    onClick={() => activateSplit('LINKED')}
+                                    className={cn("w-full flex items-center justify-between px-3 py-3 rounded-lg text-sm font-bold transition-colors", (layoutMode === 'SPLIT' && splitConfig.mode === 'LINKED') ? "bg-primary/10 text-primary" : "text-white hover:bg-slate-800")}
+                                >
+                                    <span>Linked (Entry/Exit)</span>
+                                    {(layoutMode === 'SPLIT' && splitConfig.mode === 'LINKED') && <Check className="w-4 h-4" />}
+                                </button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
             </div>
 
             {/* Main Content - SINGLE VIEW */}
             {layoutMode === 'SINGLE' && (
-                <div className="flex-1 flex flex-col gap-2 relative overflow-hidden">
+                <div className="flex-1 flex flex-col gap-4 relative animate-[fade-in_0.3s_ease-out]">
 
-                    {/* 1. Occupancy Dashboard (Top) - Flex 1 to take available space */}
-                    <div className="flex-1 flex flex-col items-center justify-center gap-4 py-2 min-h-0">
+                    {/* 1. Occupancy Dashboard (Top) */}
+                    <div className="flex-1 flex flex-col items-center justify-center gap-4 py-2">
 
                         {/* Main Big Occupancy Display */}
                         <div className="relative group cursor-default">
-                            <div className="text-[15vh] md:text-9xl leading-none font-mono font-bold text-white tracking-widest tabular-nums filter drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
+                            <div className="text-7xl md:text-9xl leading-none font-mono font-bold text-white tracking-widest tabular-nums filter drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
                                 {totalAreaCount}
                             </div>
-                            <div className="text-center text-slate-500 font-bold uppercase tracking-[0.2em] text-xs mt-2">
+                            <div className="text-center text-slate-500 font-bold uppercase tracking-[0.2em] text-xs mt-1">
                                 Live Occupancy
                             </div>
                         </div>
 
                         {/* Stats Row (In/Out) */}
-                        <div className="grid grid-cols-2 gap-4 w-full max-w-xs px-4">
+                        <div className="grid grid-cols-2 gap-4 w-full max-w-xs">
                             {/* Total In */}
                             <button
                                 onClick={() => setShowBulkModal(true)}
@@ -546,67 +424,45 @@ export default function ClicrCounterPage() {
                     </div>
 
 
-                    {/* 2. Control Buttons (Bottom Part) - Flex Grow slightly but kept constrained */}
-                    <div className="flex gap-4 shrink-0 px-4 pb-2 h-[20vh] min-h-[140px] max-h-[200px]">
-                        {soloMode ? (
-                            // SOLO MODE
-                            <div className="flex-1 flex flex-col gap-2 h-full">
-                                <TapButton
-                                    type="plus"
-                                    label={customLabels.label_a || 'COUNT'}
-                                    color="blue"
-                                    onClick={() => handleGenderTap('M', 1)}
-                                    className="flex-1 rounded-[1.5rem]"
-                                />
-                                <TapButton
-                                    type="minus"
-                                    color="blue"
-                                    onClick={() => handleGenderTap('M', -1)}
-                                    className="h-[50px] rounded-[1.5rem] shrink-0"
-                                />
-                            </div>
-                        ) : (
-                            // DUAL MODE
-                            <>
-                                {/* Button A */}
-                                <div className="flex-1 flex flex-col gap-2 h-full">
-                                    <TapButton
-                                        type="plus"
-                                        label={customLabels.label_a}
-                                        color="blue"
-                                        onClick={() => handleGenderTap('M', 1)}
-                                        className="flex-1 rounded-[1.5rem]"
-                                    />
-                                    <TapButton
-                                        type="minus"
-                                        color="blue"
-                                        onClick={() => handleGenderTap('M', -1)}
-                                        className="h-[50px] rounded-[1.5rem] shrink-0"
-                                    />
-                                </div>
+                    {/* 2. Control Buttons (Mid-Bottom) */}
+                    <div className="flex gap-4 h-[220px] mb-2 shrink-0 px-4">
+                        {/* Male Controls (Blue) */}
+                        <div className="flex-1 flex flex-col gap-2">
+                            <TapButton
+                                type="plus"
+                                label="MALE"
+                                color="blue"
+                                onClick={() => handleGenderTap('M', 1)}
+                                className="flex-1 rounded-[1.5rem]"
+                            />
+                            <TapButton
+                                type="minus"
+                                color="blue"
+                                onClick={() => handleGenderTap('M', -1)}
+                                className="h-[60px] rounded-[1.5rem]"
+                            />
+                        </div>
 
-                                {/* Button B */}
-                                <div className="flex-1 flex flex-col gap-2 h-full">
-                                    <TapButton
-                                        type="plus"
-                                        label={customLabels.label_b}
-                                        color="pink"
-                                        onClick={() => handleGenderTap('F', 1)}
-                                        className="flex-1 rounded-[1.5rem]"
-                                    />
-                                    <TapButton
-                                        type="minus"
-                                        color="pink"
-                                        onClick={() => handleGenderTap('F', -1)}
-                                        className="h-[50px] rounded-[1.5rem] shrink-0"
-                                    />
-                                </div>
-                            </>
-                        )}
+                        {/* Female Controls (Pink) */}
+                        <div className="flex-1 flex flex-col gap-2">
+                            <TapButton
+                                type="plus"
+                                label="FEMALE"
+                                color="pink"
+                                onClick={() => handleGenderTap('F', 1)}
+                                className="flex-1 rounded-[1.5rem]"
+                            />
+                            <TapButton
+                                type="minus"
+                                color="pink"
+                                onClick={() => handleGenderTap('F', -1)}
+                                className="h-[60px] rounded-[1.5rem]"
+                            />
+                        </div>
                     </div>
 
-                    {/* Reset Button */}
-                    <div className="flex justify-center mb-1 shrink-0">
+                    {/* Reset Button (Below clickers) */}
+                    <div className="flex justify-center mb-2 shrink-0">
                         <button
                             onClick={handleReset}
                             className="flex items-center gap-2 px-6 py-2 bg-red-950/20 border border-red-900/40 rounded-full text-red-500/80 text-[10px] font-bold uppercase tracking-widest hover:bg-red-900/60 hover:text-red-400 hover:border-red-500/50 transition-all active:scale-95"
@@ -628,30 +484,21 @@ export default function ClicrCounterPage() {
                                     exit={{ y: "100%" }}
                                     className={cn(
                                         "absolute inset-0 rounded-t-3xl flex items-center justify-between px-8 border-t-2 shadow-[0_-10px_30px_rgba(0,0,0,0.5)] z-20 cursor-pointer",
-                                        pendingScan
-                                            ? "bg-indigo-950 border-indigo-500 animate-pulse" // Pending Color
-                                            : (lastScan.scan_result === 'ACCEPTED' ? "bg-emerald-950 border-emerald-500" : "bg-red-950 border-red-500")
+                                        lastScan.scan_result === 'ACCEPTED'
+                                            ? "bg-emerald-950 border-emerald-500"
+                                            : "bg-red-950 border-red-500"
                                     )}
-                                    onClick={() => {
-                                        if (pendingScan) return; // Don't clear if pending!
-                                        setLastScan(null);
-                                    }}
+                                    onClick={() => setLastScan(null)}
                                 >
                                     <div className="flex items-center gap-4">
-                                        {pendingScan ? (
-                                            <Zap className="w-10 h-10 text-indigo-400 animate-spin-slow" />
+                                        {lastScan.scan_result === 'ACCEPTED' ? (
+                                            <CheckCircle2 className="w-10 h-10 text-emerald-400" />
                                         ) : (
-                                            lastScan.scan_result === 'ACCEPTED' ? (
-                                                <CheckCircle2 className="w-10 h-10 text-emerald-400" />
-                                            ) : (
-                                                <XCircle className="w-10 h-10 text-red-500" />
-                                            )
+                                            <XCircle className="w-10 h-10 text-red-500" />
                                         )}
                                         <div>
-                                            <h2 className={cn("text-2xl font-black uppercase tracking-wider leading-none",
-                                                pendingScan ? "text-indigo-400" : (lastScan.scan_result === 'ACCEPTED' ? "text-emerald-400" : "text-red-500")
-                                            )}>
-                                                {pendingScan ? "SELECT CATEGORY" : lastScan.scan_result}
+                                            <h2 className={cn("text-2xl font-black uppercase tracking-wider leading-none", lastScan.scan_result === 'ACCEPTED' ? "text-emerald-400" : "text-red-500")}>
+                                                {lastScan.scan_result}
                                             </h2>
                                             <div className="text-white/60 text-xs font-mono mt-1">
                                                 AGE: {lastScan.age} • SEX: {lastScan.sex}
@@ -659,33 +506,20 @@ export default function ClicrCounterPage() {
                                         </div>
                                     </div>
                                     <div className="text-xs text-white/40 font-bold uppercase tracking-widest">
-                                        {pendingScan ? "Tap Button Above" : "Tap to Clear"}
+                                        Tap to Clear
                                     </div>
                                 </motion.div>
                             ) : (
                                 <motion.div
                                     key="idle"
-                                    initial={{ y: "100%" }}
-                                    animate={{ y: 0 }}
-                                    exit={{ y: "100%" }}
-                                    className="absolute inset-0 bg-[#0f1218] rounded-t-3xl flex items-center justify-between px-8 border-t border-white/5"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    className="absolute inset-0 flex items-center justify-center opacity-50"
                                 >
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center">
-                                            <ScanFace className="w-5 h-5 text-slate-500" />
-                                        </div>
-                                        <div>
-                                            <div className="text-s font-bold text-white uppercase tracking-wider">Ready to Scan</div>
-                                            <div className="text-xs text-slate-500">Use Simulator (⌘+J) or hardware scanner</div>
-                                        </div>
-                                    </div>
-
-                                    {/* Small Camera Trigger for visual completeness */}
-                                    <button
-                                        onClick={() => setShowCameraScanner(true)}
-                                        className="text-xs bg-slate-800 text-slate-400 px-3 py-1.5 rounded-full font-bold hover:bg-slate-700 hover:text-white transition-colors"
-                                    >
-                                        Use Camera
+                                    <button onClick={(e) => { e.stopPropagation(); setShowCameraScanner(true); }} className="flex items-center gap-2 text-slate-600 hover:text-slate-400 transition-colors">
+                                        <ScanFace className="w-5 h-5" />
+                                        <span className="text-xs uppercase font-bold tracking-widest">Scanner Ready</span>
                                     </button>
                                 </motion.div>
                             )}
@@ -737,9 +571,48 @@ export default function ClicrCounterPage() {
 
             {/* SPLIT VIEW IMPLEMENTATION */}
             {layoutMode === 'SPLIT' && (
-                <div className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
-                    <p className="text-white">Split View is active (Simplified for layout demo)</p>
-                    <button onClick={() => setLayoutMode('SINGLE')} className="bg-slate-800 p-2 text-white rounded">Back to Single</button>
+                <div className="flex-1 flex flex-col gap-1 p-2 animate-[fade-in_0.3s_ease-out]">
+                    {/* Top Partition (Primary) */}
+                    <SplitCounterPart
+                        clicrId={clicr.id}
+                        label={splitConfig.primaryLabel || clicr.name}
+                        color="blue"
+                        mode={splitConfig.mode}
+                        role="PRIMARY" // Linked: Entries
+                        onTap={(delta) => {
+                            // If linked, simpler logic: Top is ENTRY (+1)
+                            if (splitConfig.mode === 'LINKED') {
+                                recordEvent({ venue_id: venueId || 'ven_001', area_id: clicr.area_id, clicr_id: clicr.id, delta: 1, flow_type: 'IN', event_type: 'TAP', idempotency_key: Math.random().toString() });
+                            } else {
+                                // Independent: Standard +/-
+                                recordEvent({ venue_id: venueId || 'ven_001', area_id: clicr.area_id, clicr_id: clicr.id, delta: delta, flow_type: delta > 0 ? 'IN' : 'OUT', event_type: 'TAP', idempotency_key: Math.random().toString() });
+                            }
+                        }}
+                        currentCount={clicr.current_count} // Linked uses same count
+                    />
+
+                    {/* Bottom Partition (Secondary) */}
+                    <SplitCounterPart
+                        clicrId={splitConfig.secondaryClicrId}
+                        label={splitConfig.secondaryLabel || 'Secondary'}
+                        color={splitConfig.mode === 'LINKED' ? 'red' : 'pink'} // Linked = Red (Exit), Indep = Pink
+                        mode={splitConfig.mode}
+                        role="SECONDARY" // Linked: Exits
+                        onTap={(delta) => {
+                            if (splitConfig.mode === 'LINKED') {
+                                // Bottom is EXIT (Effective -1 to count, but recorded as OUT flow)
+                                recordEvent({ venue_id: venueId || 'ven_001', area_id: clicr.area_id, clicr_id: clicr.id, delta: -1, flow_type: 'OUT', event_type: 'TAP', idempotency_key: Math.random().toString() });
+                            } else {
+                                if (splitConfig.secondaryClicrId) {
+                                    const secClicr = clicrs.find(c => c.id === splitConfig.secondaryClicrId);
+                                    if (secClicr) {
+                                        recordEvent({ venue_id: venueId || 'ven_001', area_id: secClicr.area_id, clicr_id: secClicr.id, delta: delta, flow_type: delta > 0 ? 'IN' : 'OUT', event_type: 'TAP', idempotency_key: Math.random().toString() });
+                                    }
+                                }
+                            }
+                        }}
+                        currentCount={splitConfig.mode === 'LINKED' ? clicr.current_count : (clicrs.find(c => c.id === splitConfig.secondaryClicrId)?.current_count || 0)}
+                    />
                 </div>
             )}
 
@@ -795,18 +668,33 @@ export default function ClicrCounterPage() {
 
 
             {/* Bulk Modal (Reference Design Match) */}
+
+            {/* Bulk Modal (Reference Design Match) */}
             <AnimatePresence>
                 {showBulkModal && (
-                    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6">
                         <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
+                            initial={{ scale: 0.95, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-[#0f1218] border border-slate-800 p-6 rounded-3xl w-full max-w-sm shadow-2xl space-y-6"
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            className="bg-[#0f1218] border border-slate-800 p-6 rounded-3xl w-full max-w-[340px] shadow-2xl"
                         >
-                            <h3 className="text-xl font-bold text-white text-center">Adjust Counts</h3>
+                            <div className="flex justify-between items-start mb-1">
+                                <div>
+                                    <h3 className="text-xl font-bold text-white">Adjust Total Entries</h3>
+                                    <p className="text-slate-500 text-xs mt-1 leading-snug max-w-[200px]">
+                                        Correct for guests who entered/left without tracking. This modifies "Total In".
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleReset}
+                                    className="p-2.5 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl hover:bg-red-500/20 transition-colors"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
 
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-3 my-8">
                                 <button
                                     onClick={() => setBulkValue(v => v - 1)}
                                     className="w-12 h-12 flex items-center justify-center bg-[#1e2330] rounded-xl text-white hover:bg-[#2a3040] active:scale-95 transition-all text-xl font-medium"
@@ -843,129 +731,6 @@ export default function ClicrCounterPage() {
                                     className="py-3 rounded-xl bg-[#6366f1] text-white font-semibold text-sm hover:bg-[#4f46e5] shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
                                 >
                                     Apply
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            {/* CONFIG MODAL */}
-            <AnimatePresence>
-                {showConfigModal && (
-                    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-[#0f1218] border border-slate-800 p-6 rounded-3xl w-full max-w-sm shadow-2xl space-y-6"
-                        >
-                            <div>
-                                <h3 className="text-xl font-bold text-white">Clicr Settings</h3>
-                                <p className="text-slate-500 text-sm">Customize your counter interface.</p>
-                            </div>
-
-                            {/* Mode Toggle */}
-                            <div className="flex items-center justify-between bg-slate-900/50 p-3 rounded-xl border border-white/5">
-                                <span className="text-sm font-bold text-white">Dual Counter Mode</span>
-                                <button
-                                    id="mode_toggle"
-                                    onClick={(e) => {
-                                        // Toggle local draft only - prevents background thrashing
-                                        setDraftSoloMode(!draftSoloMode);
-                                    }}
-                                    className={cn("w-12 h-7 rounded-full relative transition-colors",
-                                        !draftSoloMode ? "bg-blue-500" : "bg-slate-700"
-                                    )}
-                                >
-                                    <div className="absolute left-1 top-1 w-5 h-5 bg-white rounded-full shadow-md transition-transform" style={{ transform: !draftSoloMode ? "translateX(20px)" : "translateX(0px)" }} />
-                                </button>
-                            </div>
-
-                            {/* Classify Toggle */}
-                            <div className="flex items-center justify-between bg-slate-900/50 p-3 rounded-xl border border-white/5">
-                                <span className="text-sm font-bold text-white">Classify Scans</span>
-                                <button
-                                    onClick={() => {
-                                        const newVal = !classifyMode;
-                                        setClassifyMode(newVal);
-                                        localStorage.setItem(`clicr_classify_mode_${clicr.id}`, String(newVal));
-                                    }}
-                                    className={cn("w-12 h-7 rounded-full relative transition-colors",
-                                        classifyMode ? "bg-emerald-500" : "bg-slate-700"
-                                    )}
-                                >
-                                    <div className="absolute left-1 top-1 w-5 h-5 bg-white rounded-full shadow-md transition-transform" style={{ transform: classifyMode ? "translateX(20px)" : "translateX(0px)" }} />
-                                </button>
-                            </div>
-
-                            {/* Inputs */}
-                            <div className="space-y-4" onClick={(e) => e.stopPropagation()}>
-                                {/* Input A (Always visible) */}
-                                <div className="space-y-2">
-                                    <label className={cn("text-xs font-bold uppercase tracking-widest transition-colors",
-                                        draftSoloMode ? "text-white" : "text-blue-400"
-                                    )}>
-                                        {draftSoloMode ? "Button Label" : "Left Button (Blue)"}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        autoFocus
-                                        value={editLabels.label_a}
-                                        onChange={(e) => setEditLabels(prev => ({ ...prev, label_a: e.target.value }))}
-                                        className={cn("w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white font-bold focus:outline-none transition-colors",
-                                            draftSoloMode ? "focus:border-white" : "focus:border-blue-500"
-                                        )}
-                                        placeholder={draftSoloMode ? "e.g. COUNT" : "e.g. MALE"}
-                                    />
-                                </div>
-
-                                {/* Input B (Hidden in Solo) */}
-                                <div className={cn("space-y-2 transition-all duration-200 overflow-hidden",
-                                    draftSoloMode ? "h-0 opacity-0 pointer-events-none" : "h-auto opacity-100"
-                                )}>
-                                    <label className="text-xs font-bold text-pink-400 uppercase tracking-widest">Right Button (Pink)</label>
-                                    <input
-                                        type="text"
-                                        value={editLabels.label_b}
-                                        onChange={(e) => setEditLabels(prev => ({ ...prev, label_b: e.target.value }))}
-                                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white font-bold focus:outline-none focus:border-pink-500 transition-colors"
-                                        placeholder="e.g. FEMALE"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3 pt-2">
-                                <button
-                                    onClick={() => {
-                                        // Just close, discard draft
-                                        setShowConfigModal(false);
-                                    }}
-                                    className="py-3 rounded-xl text-slate-400 bg-[#1e2330] hover:bg-[#2a3040] font-semibold text-sm transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        // Save Logic
-                                        // Commit draft to real state
-                                        const isSolo = draftSoloMode;
-                                        setSoloMode(isSolo);
-
-                                        let a = editLabels.label_a || (isSolo ? 'COUNT' : 'MALE');
-                                        let b = editLabels.label_b || 'FEMALE';
-
-                                        saveLabels(a, b);
-
-                                        if (isSolo) {
-                                            localStorage.setItem(`clicr_layout_mode_${clicr.id}`, 'SOLO');
-                                        } else {
-                                            localStorage.removeItem(`clicr_layout_mode_${clicr.id}`);
-                                        }
-                                    }}
-                                    className="py-3 rounded-xl bg-white text-black font-bold text-sm hover:bg-slate-200 shadow-lg transition-all active:scale-95"
-                                >
-                                    Save Changes
                                 </button>
                             </div>
                         </motion.div>
@@ -1092,99 +857,13 @@ function TapButton({
             )}
         >
             <div className="relative z-10 flex flex-col items-center gap-1">
-                {type === 'plus' ? (
-                    <Plus className={cn("text-white drop-shadow-md transition-all", label ? "w-10 h-10 md:w-14 md:h-14" : "w-12 h-12 md:w-16 md:h-16")} />
-                ) : (
-                    <Minus className="w-6 h-6 md:w-10 md:h-10 text-white drop-shadow-md transition-all" />
-                )}
-                {label && <span className="text-white font-bold tracking-widest text-xs md:text-base uppercase">{label}</span>}
+                {type === 'plus' ? <Plus className={cn("text-white drop-shadow-md", label ? "w-16 h-16" : "w-12 h-12")} /> : <Minus className="w-10 h-10 text-white drop-shadow-md" />}
+                {label && <span className="text-white font-bold tracking-widest text-sm uppercase">{label}</span>}
             </div>
-
+            {/* Glossy Overlay */}
             <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
         </motion.button>
     )
-}
-
-function CameraScanner({ onScan }: { onScan: (text: string) => void }) {
-    const [torch, setTorch] = useState(false);
-    const scannerRef = useRef<Html5Qrcode | null>(null);
-    const [status, setStatus] = useState<'INIT' | 'SCANNING' | 'ERROR'>('INIT');
-
-    useEffect(() => {
-        // Init Scanner
-        const config = { fps: 10, qrbox: { width: 300, height: 200 } };
-        const html5QrCode = new Html5Qrcode("reader");
-        scannerRef.current = html5QrCode;
-
-        const startScanner = async () => {
-            try {
-                // PDF417 is critical for ID cards
-                await html5QrCode.start(
-                    { facingMode: "environment" },
-                    config,
-                    (decodedText) => {
-                        onScan(decodedText);
-                    },
-                    (errorMessage) => {
-                        // ignore failures, they happen on every frame
-                    }
-                );
-                setStatus('SCANNING');
-            } catch (err) {
-                console.error("Camera Start Error", err);
-                setStatus('ERROR');
-            }
-        };
-
-        startScanner();
-
-        return () => {
-            if (scannerRef.current && scannerRef.current.isScanning) {
-                scannerRef.current.stop().then(() => scannerRef.current?.clear());
-            }
-        };
-    }, []);
-
-    const toggleTorch = async () => {
-        if (!scannerRef.current) return;
-        try {
-            await scannerRef.current.applyVideoConstraints({
-                advanced: [{ torch: !torch } as any]
-            });
-            setTorch(!torch);
-        } catch (err) {
-            console.error("Torch Error", err);
-            // alert("Flashlight not available on this device."); // Optional
-        }
-    };
-
-    return (
-        <div className="relative w-full h-[400px] bg-black">
-            {/* Scanner Box */}
-            <div id="reader" className="w-full h-full" />
-
-            {/* Overlay UI */}
-            <div className="absolute bottom-6 left-0 right-0 flex justify-center z-10">
-                <button
-                    onClick={toggleTorch}
-                    className={cn(
-                        "p-4 rounded-full transition-all border",
-                        torch
-                            ? "bg-yellow-500/20 border-yellow-500 text-yellow-400 shadow-[0_0_20px_rgba(234,179,8,0.3)]"
-                            : "bg-slate-900/80 border-white/10 text-white"
-                    )}
-                >
-                    {torch ? <Zap className="w-6 h-6 fill-current" /> : <Zap className="w-6 h-6" />}
-                </button>
-            </div>
-
-            {status === 'ERROR' && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white p-6 text-center">
-                    <p>Camera access failed. Please ensure permissions are granted and you are on a mobile device.</p>
-                </div>
-            )}
-        </div>
-    );
 }
 
 
