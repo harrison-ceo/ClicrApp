@@ -52,7 +52,7 @@ export async function signup(formData: FormData) {
         return redirect('/login?message=Check your email to confirm your account.');
     }
 
-    console.log("[Auth] Signup successful, session active. Redirecting to Dashboard.");
+    console.log("[Auth] Signup successful, session active. Redirecting to Onboarding.");
     revalidatePath('/', 'layout')
-    redirect('/dashboard')
+    redirect('/onboarding')
 }
