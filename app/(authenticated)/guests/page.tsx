@@ -5,42 +5,29 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Search, ShieldAlert, FileText, Download } from 'lucide-react';
+import Link from 'next/link';
+import { Search, ShieldAlert, FileText, Download, Ban } from 'lucide-react';
 import { IDScanEvent } from '@/lib/types';
-import { readDB } from '@/lib/db'; // In production, this would be a Server Action fetching Supabase
 import { ComplianceEngine } from '@/lib/compliance';
 
-// Mock fetching function (client-side for prototype)
-// In production, move to a Server Component or Server Action
+// Real data fetch hook
 function useGuests() {
     const [scans, setScans] = useState<IDScanEvent[]>([]);
 
+    // In a real app with venue selection, we'd pass venueId here.
+    // For now, we fetch all (or filtered by server default)
     useEffect(() => {
-        // Simulating API fetch
-        // In real app: const data = await fetch('/api/guests').json();
-        // Here we just grab mock data from localStorage or similar if we could, 
-        // but since readDB is server-side only in Next.js (usually), 
-        // we'll mock the data array directly here for the UI demo.
+        const fetchScans = async () => {
+            // ... existing data fetching logic remains same but ensuring we have it right
+            const { getRecentScansAction } = await import('@/app/actions/scan');
+            const data = await getRecentScansAction();
+            setScans(data);
+        };
+        fetchScans();
 
-        const MOCK_SCANS: IDScanEvent[] = [
-            {
-                id: 'scan_1', timestamp: Date.now() - 100000, venue_id: 'ven_1', scan_result: 'ACCEPTED',
-                age: 25, age_band: '21-24', sex: 'M', zip_code: '10001',
-                first_name: 'John', last_name: 'Doe', issuing_state: 'NY', id_number_last4: '1234'
-            },
-            {
-                id: 'scan_2', timestamp: Date.now() - 500000, venue_id: 'ven_1', scan_result: 'DENIED',
-                age: 17, age_band: '18-20', sex: 'F', zip_code: '90210',
-                first_name: 'Jane', last_name: 'Smith', issuing_state: 'CA', id_number_last4: '9876'
-            },
-            {
-                id: 'scan_3', timestamp: Date.now() - 200000000, venue_id: 'ven_1', scan_result: 'ACCEPTED',
-                age: 30, age_band: '30+', sex: 'M', zip_code: '78701',
-                first_name: 'Bob', last_name: 'Texas', issuing_state: 'TX', id_number_last4: '4567'
-            }
-        ];
-
-        setScans(MOCK_SCANS);
+        // Optional: Poll for updates every 30s
+        const interval = setInterval(fetchScans, 30000);
+        return () => clearInterval(interval);
     }, []);
 
     return scans;
@@ -113,12 +100,13 @@ export default function GuestDirectoryPage() {
                                     <th className="p-4">State</th>
                                     <th className="p-4">Result</th>
                                     <th className="p-4">Compliance Status</th>
+                                    <th className="p-4">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-800 bg-slate-900/50">
                                 {filteredScans.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="p-8 text-center text-slate-500">
+                                        <td colSpan={7} className="p-8 text-center text-slate-500">
                                             No guests found matching your filters.
                                         </td>
                                     </tr>
@@ -128,6 +116,15 @@ export default function GuestDirectoryPage() {
                                         const rule = ComplianceEngine.getRule(state);
                                         const isRestricted = !rule.storePII;
                                         const complianceReason = ComplianceEngine.getRestrictionReason(state);
+
+                                        // Construct ban URL
+                                        const params = new URLSearchParams();
+                                        if (scan.first_name) params.set('fname', scan.first_name);
+                                        if (scan.last_name) params.set('lname', scan.last_name);
+                                        if (scan.dob) params.set('dob', scan.dob || '');
+                                        if (scan.id_number_last4) params.set('id_last4', scan.id_number_last4);
+
+                                        const banLink = `/banning?mode=create&${params.toString()}`;
 
                                         return (
                                             <tr key={scan.id} className="hover:bg-slate-800/50 transition-colors">
@@ -171,6 +168,16 @@ export default function GuestDirectoryPage() {
                                                             <FileText className="h-3.5 w-3.5" />
                                                             Full Record
                                                         </div>
+                                                    )}
+                                                </td>
+                                                <td className="p-4">
+                                                    {!isRestricted && (
+                                                        <Link href={banLink}>
+                                                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10">
+                                                                <Ban className="h-4 w-4" />
+                                                                <span className="sr-only">Ban Patron</span>
+                                                            </Button>
+                                                        </Link>
                                                     )}
                                                 </td>
                                             </tr>

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '@/lib/store';
-import { ScanFace, CheckCircle2, XCircle, Search, CreditCard, RotateCcw, Camera, Ban, AlertTriangle } from 'lucide-react';
+import { ScanFace, CheckCircle2, XCircle, Search, CreditCard, RotateCcw, Camera, Ban, AlertTriangle, Bug } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { IDScanEvent, BanEnforcementEvent } from '@/lib/types';
@@ -10,39 +10,7 @@ import { Html5QrcodeScanner } from 'html5-qrcode';
 import { parseAAMVA } from '@/lib/aamva';
 import { submitScanAction } from '@/app/actions/scan';
 
-// Mock data generator for simulation
-const generateMockID = () => {
-    const isUnderage = Math.random() < 0.15; // 15% chance of underage
-    const age = isUnderage ? Math.floor(Math.random() * (20 - 16 + 1) + 16) : Math.floor(Math.random() * (65 - 21 + 1) + 21);
-    const sex = Math.random() > 0.5 ? 'M' : 'F';
-    const zip = Math.floor(Math.random() * 90000 + 10000).toString();
-
-    // Calculate bands just for display if needed
-    let age_band = '21-25';
-    if (age < 21) age_band = 'Under 21';
-    else if (age > 25 && age <= 30) age_band = '26-30';
-    else if (age > 30 && age <= 40) age_band = '31-40';
-    else if (age > 40) age_band = '41+';
-
-    // Mock Demographics
-    const eyeColors = ['BLU', 'BRO', 'GRN', 'HAZ'];
-    const hairColors = ['BRO', 'BLK', 'BLN', 'RED', 'GRY'];
-    const cities = ['Los Angeles', 'San Diego', 'San Francisco', 'Sacramento'];
-
-    return {
-        age,
-        sex,
-        zip,
-        age_band,
-        eyeColor: eyeColors[Math.floor(Math.random() * eyeColors.length)],
-        hairColor: hairColors[Math.floor(Math.random() * hairColors.length)],
-        height: `${Math.floor(Math.random() * (80 - 60) + 60)}`, // inches
-        weight: `${Math.floor(Math.random() * (220 - 120) + 120)}`,
-        city: cities[Math.floor(Math.random() * cities.length)],
-        state: 'CA',
-        idNumber: `D${Math.floor(Math.random() * 9000000 + 1000000)}`
-    };
-};
+// Mock generation removed for production readiness.
 
 export default function ScannerPage() {
     // recordScan removed from useApp context because we use Server Action now
@@ -52,10 +20,12 @@ export default function ScannerPage() {
     const [lastScan, setLastScan] = useState<IDScanEvent | null>(null);
     const [bannedHit, setBannedHit] = useState<{ person: any, ban: any, matchType: 'HARD' | 'SOFT' } | null>(null);
     const [useCamera, setUseCamera] = useState(false);
+    const [debugMode, setDebugMode] = useState(false); // Debug Mode Toggle
 
     // Hardware scanner state
     const [scannerInput, setScannerInput] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
+    const [isInputFocused, setIsInputFocused] = useState(false);
 
     // Focus management for hardware scanner
     useEffect(() => {
@@ -185,10 +155,20 @@ export default function ScannerPage() {
 
         // Call Server Action
         const scanResultObj = { status: scanResult as any, message: 'Processed via Scanner' };
-        submitScanAction(selectedVenueId, scanResultObj, parsed);
 
-        // Update Local State for UI
-        setLastScan({ ...scanEvent, id: 'temp', timestamp: Date.now() });
+        setIsScanning(true); // Keep loading state
+        submitScanAction(selectedVenueId, scanResultObj, parsed)
+            .then(() => {
+                // Update Local State for UI only after success
+                setLastScan({ ...scanEvent, id: 'temp', timestamp: Date.now() });
+            })
+            .catch(err => {
+                console.error("Scan submission failed", err);
+                alert("Failed to save scan record! Please rescan.");
+            })
+            .finally(() => {
+                setIsScanning(false);
+            });
     };
 
     const handleBanEnforcement = (result: 'BLOCKED' | 'WARNED' | 'ALLOWED_OVERRIDE', notes?: string) => {
@@ -239,7 +219,8 @@ export default function ScannerPage() {
 
         try {
             const parsed = parseAAMVA(scannerInput);
-            console.log("Hardware Parse:", parsed);
+            if (debugMode) console.log("Hardware Parse:", parsed);
+
             if (parsed.age !== null) {
                 processScanResult(parsed);
             } else {
@@ -250,48 +231,6 @@ export default function ScannerPage() {
         }
 
         setScannerInput('');
-    };
-
-    // Scanner simulation logic
-    const handleSimulateScan = async () => {
-        setIsScanning(true);
-        setLastScan(null);
-        setBannedHit(null);
-        await new Promise(resolve => setTimeout(resolve, 800));
-
-        // Randomly decide to scan an existing patron (to test bans) or a random person
-        const shouldPickExisting = Math.random() < 0.3 && patrons.length > 0;
-
-        if (shouldPickExisting) {
-            const randomPatron = patrons[Math.floor(Math.random() * patrons.length)];
-            // Mock a scan for this person
-            processScanResult({
-                age: randomPatron.date_of_birth ? new Date().getFullYear() - parseInt(randomPatron.date_of_birth.substring(0, 4)) : 25,
-                sex: 'M', // Mock
-                postalCode: '12345',
-                firstName: randomPatron.first_name,
-                lastName: randomPatron.last_name,
-                dateOfBirth: randomPatron.date_of_birth ? randomPatron.date_of_birth.replace(/-/g, '') : '20000101'
-            });
-        } else {
-            const mockData = generateMockID();
-            processScanResult({
-                age: mockData.age,
-                sex: mockData.sex,
-                postalCode: mockData.zip,
-                firstName: 'Random',
-                lastName: 'Patron',
-                dateOfBirth: '20000101',
-                // Advanced Mock
-                eyeColor: mockData.eyeColor,
-                hairColor: mockData.hairColor,
-                height: mockData.height,
-                weight: mockData.weight,
-                city: mockData.city,
-                state: mockData.state,
-                idNumber: mockData.idNumber
-            });
-        }
     };
 
     // Camera Logic
@@ -360,8 +299,21 @@ export default function ScannerPage() {
                 className="bg-slate-900/50 glass-panel border border-slate-800 rounded-3xl p-8 min-h-[500px] flex flex-col items-center justify-center relative overflow-hidden"
                 onClick={() => !isOverrideModalOpen && inputRef.current?.focus()}
             >
-                {/* Hidden Hardware Input */}
-                <form onSubmit={handleHardwareSubmit} className="opacity-0 absolute top-0 left-0 w-0 h-0 overflow-hidden">
+                {/* Status Indicator */}
+                <div className="absolute top-4 right-4 flex items-center gap-2">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setDebugMode(!debugMode); }}
+                        className={cn("p-2 rounded-full transition-colors", debugMode ? 'bg-amber-500/20 text-amber-500' : 'text-slate-600 hover:text-slate-400')}
+                        title="Toggle Debug Mode"
+                    >
+                        <Bug className="w-4 h-4" />
+                    </button>
+                    <div className={cn("w-3 h-3 rounded-full", isInputFocused ? 'bg-green-500 animate-pulse' : 'bg-red-500')} title={isInputFocused ? "Scanner Ready (Focused)" : "Scanner Disconnected (Click to Focus)"} />
+                </div>
+
+                {/* Hardware Input Form - Visible in Debug Mode */}
+                <form onSubmit={handleHardwareSubmit} className={debugMode ? "absolute top-4 left-4 z-50 bg-black p-4 border border-slate-700 rounded-lg max-w-xs" : "opacity-0 absolute top-0 left-0 w-0 h-0 overflow-hidden"}>
+                    {debugMode && <label className="text-xs text-slate-400 block mb-1">Raw Scanner Input:</label>}
                     <input
                         ref={inputRef}
                         value={scannerInput}
@@ -369,8 +321,10 @@ export default function ScannerPage() {
                         autoFocus
                         autoComplete="off"
                         type="text"
+                        className={debugMode ? "w-full bg-slate-900 text-xs font-mono p-2 rounded text-green-400 border border-slate-800" : ""}
+                        placeholder="Waiting for scan..."
                     />
-                    <button type="submit">Scan</button>
+                    {debugMode && <button type="submit" className="mt-2 text-xs bg-slate-800 px-2 py-1 rounded text-white">Simulate Enter</button>}
                 </form>
 
                 {/* Override Modal */}
@@ -505,14 +459,22 @@ export default function ScannerPage() {
                             key="ready"
                         >
                             <div className="w-48 h-32 border-2 border-dashed border-slate-600 rounded-xl mx-auto flex items-center justify-center bg-slate-800/30">
-                                <CreditCard className="w-12 h-12 text-slate-500" />
+                                {isInputFocused ? (
+                                    <CreditCard className="w-12 h-12 text-primary animate-pulse" />
+                                ) : (
+                                    <CreditCard className="w-12 h-12 text-slate-500" />
+                                )}
                             </div>
 
                             <div className="grid gap-4">
                                 <div>
-                                    <h2 className="text-xl font-semibold text-white">Ready to Scan</h2>
+                                    <h2 className="text-xl font-semibold text-white">
+                                        {isInputFocused ? "Scanner Ready" : "Scanner Disconnected"}
+                                    </h2>
                                     <p className="text-slate-400 text-sm mt-1">
-                                        Use Bluetooth Scanner <span className="text-primary font-bold">•</span> Camera <span className="text-primary font-bold">•</span> Simulation
+                                        {isInputFocused
+                                            ? "Scan ID now. AAMVA Format supported."
+                                            : "Tap here or on the icon to activate scanner."}
                                     </p>
                                 </div>
 
@@ -522,16 +484,6 @@ export default function ScannerPage() {
                                 >
                                     <Camera className="w-6 h-6" />
                                     Scan with Camera
-                                </button>
-
-                                <div className="text-slate-500 text-sm font-medium uppercase tracking-wider">- OR -</div>
-
-                                <button
-                                    onClick={handleSimulateScan}
-                                    className="px-6 py-3 bg-slate-800 text-slate-200 text-sm font-bold rounded-full hover:bg-slate-700 transition-all flex items-center justify-center gap-2 w-48 mx-auto"
-                                >
-                                    <ScanFace className="w-4 h-4" />
-                                    Simulate Scan
                                 </button>
                             </div>
                         </motion.div>
