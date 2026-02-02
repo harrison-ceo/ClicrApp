@@ -78,9 +78,22 @@ export async function submitScanAction(
                 created_at: scanEvent.timestamp
             });
             console.log("SERVER ACTION: Also synced to scan_logs");
+
+            // If Accepted, also increment Occupancy
+            if (scanEvent.scan_result === 'ACCEPTED') {
+                await supabaseAdmin.from('occupancy_events').insert({
+                    business_id: venueData.business_id,
+                    venue_id: venueData.id,
+                    timestamp: scanEvent.timestamp,
+                    flow_type: 'IN', // Scanning implies entry
+                    delta: 1,
+                    event_type: 'SCAN'
+                });
+                console.log("SERVER ACTION: Incremented Occupancy");
+            }
         }
     } catch (e) {
-        console.warn("SERVER ACTION: Could not sync to scan_logs (non-fatal):", e);
+        console.warn("SERVER ACTION: Could not sync to scan_logs/occupancy (non-fatal):", e);
     }
 
     // Convert back to IDScanEvent
