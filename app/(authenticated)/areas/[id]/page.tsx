@@ -80,7 +80,7 @@ export default function AreaDetailPage() {
         if (!newClicrName.trim()) return;
         setIsSavingClicr(true);
 
-        const success = await addClicr({
+        const res = await addClicr({
             id: crypto.randomUUID(),
             area_id: area.id,
             name: newClicrName,
@@ -91,13 +91,13 @@ export default function AreaDetailPage() {
         });
 
         setIsSavingClicr(false);
-        if (success) {
+        if (res.success) {
             setShowAddClicr(false);
             setNewClicrName('');
             setNewClicrCommand('');
             setNewClicrFlow('BIDIRECTIONAL');
         } else {
-            alert('Failed to save Clicr. Please try again.');
+            alert(`Failed to save Clicr: ${res.error || 'Unknown error'}`);
         }
     };
 
@@ -112,12 +112,12 @@ export default function AreaDetailPage() {
         if (!clicrToDelete) return;
 
         // Call delete action
-        const success = await deleteClicr(clicrToDelete.id);
+        const res = await deleteClicr(clicrToDelete.id);
 
-        if (success) {
+        if (res.success) {
             setClicrToDelete(null); // Close modal
         } else {
-            alert("Failed to remove Clicr. Please try again.");
+            alert(`Failed to remove Clicr: ${res.error || 'Check console/logs'}`);
             // Keep modal open
         }
     };
@@ -334,6 +334,22 @@ export default function AreaDetailPage() {
                     </div>
                 )}
             </AnimatePresence>
+
+            {/* DEBUG PANEL */}
+            <div className="mt-8 p-4 border border-slate-800 rounded-lg bg-black/20 text-[10px] font-mono text-slate-500">
+                <p className="font-bold text-slate-400 mb-2">DEBUG: SYNC STATUS</p>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <span className="block text-slate-600">AREA ID:</span> {area.id}
+                        <span className="block text-slate-600 mt-1">CURRENT SNAPSHOT:</span> {area.current_occupancy !== undefined ? area.current_occupancy : 'UNDEFINED (Using fallback)'}
+                        <span className="block text-slate-600 mt-1">FALLBACK SUM:</span> {areaClicrs.reduce((acc, c) => acc + c.current_count, 0)}
+                    </div>
+                    <div>
+                        <span className="block text-slate-600">CLICRS:</span> {areaClicrs.length}
+                        <span className="block text-slate-600 mt-1">SYNC MODE:</span> Realtime + Polling
+                    </div>
+                </div>
+            </div>
 
         </div>
     );

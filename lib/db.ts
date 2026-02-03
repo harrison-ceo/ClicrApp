@@ -126,9 +126,15 @@ const INITIAL_DB: DBData = {
 };
 
 function ensureDir() {
-    const dir = path.dirname(DB_PATH);
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+    try {
+        const dir = path.dirname(DB_PATH);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+    } catch (e: any) {
+        if (e.code !== 'EROFS' && !e.message.includes('read-only')) {
+            console.warn("ensureDir failed:", e.message);
+        }
     }
 }
 
@@ -168,8 +174,18 @@ export function readDB(): DBData {
 }
 
 export function writeDB(data: DBData) {
-    ensureDir();
-    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+    try {
+        ensureDir();
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+    } catch (error: any) {
+        // In Vercel/Serverless, the filesystem is Read-Only.
+        // We expect this error and suppress it, because persistence is now handled by Supabase.
+        if (error.code === 'EROFS' || error.message.includes('read-only')) {
+            // console.warn("Supressed EROFS error in writeDB (Serverless Environment)");
+            return;
+        }
+        console.warn("Write DB Failed (Non-Critical if using Supabase):", error.message);
+    }
 }
 
 export function addVenue(venue: Venue) {

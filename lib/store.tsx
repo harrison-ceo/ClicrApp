@@ -35,11 +35,14 @@ export type AppState = {
     banEnforcementEvents: BanEnforcementEvent[];
 
     isLoading: boolean;
+    lastError: string | null; // GLOBAL ERROR STATE
 };
 
 type AppContextType = AppState & {
-    recordEvent: (event: Omit<CountEvent, 'id' | 'timestamp' | 'user_id' | 'business_id'>) => void;
-    recordScan: (scan: Omit<IDScanEvent, 'id' | 'timestamp'>) => void;
+    setLastError: (msg: string | null) => void;
+    recordEvent: (event: Omit<CountEvent, 'id' | 'timestamp' | 'user_id' | 'business_id'>) => Promise<void>;
+    recordScan: (scan: Omit<IDScanEvent, 'id' | 'timestamp'>) => Promise<void>;
+    // ... other methods ...
     resetCounts: (venueId?: string) => void;
     addUser: (user: User) => Promise<void>;
     updateUser: (user: User) => Promise<void>;
@@ -53,9 +56,9 @@ type AppContextType = AppState & {
     updateArea: (area: Area) => Promise<boolean>;
 
     // Devices
-    addClicr: (clicr: Clicr) => Promise<boolean>;
+    addClicr: (clicr: Clicr) => Promise<{ success: boolean; error?: string }>;
     updateClicr: (clicr: Clicr) => Promise<void>;
-    deleteClicr: (clicrId: string) => Promise<boolean>;
+    deleteClicr: (clicrId: string) => Promise<{ success: boolean; error?: string }>;
     addDevice: (device: Device) => Promise<void>;
     updateDevice: (device: Device) => Promise<void>;
 
@@ -94,6 +97,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         banEnforcementEvents: [],
 
         isLoading: true,
+        lastError: null,
     });
 
     const isResettingRef = useRef(false);
@@ -155,12 +159,52 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    // Initial load and polling
+    // Initial load, polling, AND Realtime Subscription
     useEffect(() => {
         refreshState();
-        const interval = setInterval(refreshState, 2000); // Poll every 2 seconds
+        const interval = setInterval(refreshState, 2000); // Keep polling as backup/sync mechanism
         return () => clearInterval(interval);
     }, []);
+
+    // REALTIME SUBSCRIPTION (Separated to depend on business context)
+    useEffect(() => {
+        const supabase = createClient();
+        let channel: any = null;
+
+        if (state.business?.id) {
+            console.log("Subscribing to Realtime for Business:", state.business.id);
+            channel = supabase.channel(`occupancy_${state.business.id}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*', // Listen to INSERT/UPDATE
+                        schema: 'public',
+                        table: 'occupancy_snapshots',
+                        filter: `business_id=eq.${state.business.id}` // TENANT ISOLATION
+                    },
+                    (payload) => {
+                        // console.log('Realtime change received!', payload);
+                        if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+                            const newSnap = payload.new as any;
+                            setState(prev => ({
+                                ...prev,
+                                areas: prev.areas.map(a => {
+                                    if (a.id === newSnap.area_id) {
+                                        return { ...a, current_occupancy: newSnap.current_occupancy };
+                                    }
+                                    return a;
+                                })
+                            }));
+                        }
+                    }
+                )
+                .subscribe();
+        }
+
+        return () => {
+            if (channel) supabase.removeChannel(channel);
+        };
+    }, [state.business?.id]); // Re-run when business context loads
 
     const authFetch = async (body: any) => {
         const supabase = createClient();
@@ -437,7 +481,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
     // --- DEVICES ---
 
-    const deleteClicr = async (clicrId: string) => {
+    const deleteClicr = async (clicrId: string): Promise<{ success: boolean, error?: string }> => {
         // Optimistic - remove from list
         const originalClicr = state.clicrs.find(c => c.id === clicrId);
         setState(prev => ({
@@ -450,21 +494,22 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             if (res.ok) {
                 const updatedDB = await res.json();
                 setState(prev => ({ ...prev, ...updatedDB }));
-                return true;
+                return { success: true };
             } else {
-                console.error("Delete Clicr Failed API");
+                const errData = await res.json().catch(() => ({}));
+                console.error("Delete Clicr Failed API", errData);
                 // Revert
                 if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
-                return false;
+                return { success: false, error: errData.error || res.statusText };
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error("Delete Clicr Network Error", e);
             if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
-            return false;
+            return { success: false, error: e.message };
         }
     };
 
-    const addClicr = async (clicr: Clicr) => {
+    const addClicr = async (clicr: Clicr): Promise<{ success: boolean, error?: string }> => {
         // Optimistic Update
         const tempId = clicr.id;
         setState(prev => ({ ...prev, clicrs: [...prev.clicrs, clicr] }));
@@ -473,19 +518,27 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             const res = await authFetch({ action: 'ADD_CLICR', payload: clicr });
             if (res.ok) {
                 const updatedDB = await res.json();
+
+                // ROBUSTNESS: Ensure new clicr is present
+                const exists = updatedDB.clicrs && updatedDB.clicrs.find((c: Clicr) => c.id === clicr.id);
+                if (!exists) {
+                    updatedDB.clicrs = [...(updatedDB.clicrs || []), clicr];
+                }
+
                 setState(prev => ({ ...prev, ...updatedDB }));
-                return true;
+                return { success: true };
             } else {
-                console.error("Failed to add clicr API error");
+                const errData = await res.json().catch(() => ({}));
+                console.error("Failed to add clicr API error", errData);
                 // Revert
                 setState(prev => ({ ...prev, clicrs: prev.clicrs.filter(c => c.id !== tempId) }));
-                return false;
+                return { success: false, error: errData.error || res.statusText };
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to add clicr network error", error);
             // Revert
             setState(prev => ({ ...prev, clicrs: prev.clicrs.filter(c => c.id !== tempId) }));
-            return false;
+            return { success: false, error: error.message };
         }
     };
 
@@ -690,8 +743,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         } catch (error) { console.error("Failed to update business", error); }
     };
 
+    const setLastError = (msg: string | null) => {
+        setState(prev => ({ ...prev, lastError: msg }));
+    }
+
     return (
-        <AppContext.Provider value={{ ...state, recordEvent, recordScan, resetCounts, addUser, updateUser, removeUser, updateBusiness, addClicr, updateClicr, deleteClicr, addVenue, updateVenue, addArea, updateArea, addDevice, updateDevice, addCapacityOverride, addVenueAuditLog, addBan, revokeBan, createPatronBan, updatePatronBan, recordBanEnforcement } as AppContextType}>
+        <AppContext.Provider value={{ ...state, setLastError, recordEvent, recordScan, resetCounts, addUser, updateUser, removeUser, updateBusiness, addClicr, updateClicr, deleteClicr, addVenue, updateVenue, addArea, updateArea, addDevice, updateDevice, addCapacityOverride, addVenueAuditLog, addBan, revokeBan, createPatronBan, updatePatronBan, recordBanEnforcement }}>
             {children}
         </AppContext.Provider>
     );

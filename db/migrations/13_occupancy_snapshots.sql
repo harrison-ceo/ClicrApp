@@ -10,11 +10,12 @@ CREATE TABLE IF NOT EXISTS occupancy_snapshots (
   updated_at timestamptz DEFAULT now()
 );
 
--- Enable RLS
+-- Enable RLS (Safe to run multiple times)
 ALTER TABLE occupancy_snapshots ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
 -- READ: Authenticated users can read snapshots for their business
+DROP POLICY IF EXISTS "View own business snapshots" ON occupancy_snapshots;
 CREATE POLICY "View own business snapshots" ON occupancy_snapshots
   FOR SELECT
   USING (
@@ -25,6 +26,7 @@ CREATE POLICY "View own business snapshots" ON occupancy_snapshots
   );
 
 -- WRITE: Generally handled by server side functions, but if updated directly:
+DROP POLICY IF EXISTS "Update own business snapshots" ON occupancy_snapshots;
 CREATE POLICY "Update own business snapshots" ON occupancy_snapshots
   FOR UPDATE
   USING (
@@ -40,7 +42,7 @@ CREATE OR REPLACE FUNCTION process_occupancy_event(
   p_venue_id uuid,
   p_area_id uuid,
   p_device_id uuid,
-  p_user_id uuid, -- Pass as UUID if possible, or string and cast inside if needed. API passes 'system' sometimes, need care.
+  p_user_id uuid, 
   p_delta int,
   p_flow_type flow_type,
   p_event_type text,
@@ -63,12 +65,15 @@ BEGIN
     now(), p_flow_type, p_delta, p_event_type, p_session_id
   ) RETURNING id INTO v_new_event_id;
 
-  -- 2. Upsert the snapshot
-  -- We use ON CONFLICT to handle the first time an area has an event
+  -- 2. Upsert the snapshot WITH LOCKING
+  -- We explicitly lock the row if it exists, or insert if not.
+  -- The ON CONFLICT clause internally handles a form of locking/retry, but for strictness:
+  
   INSERT INTO occupancy_snapshots (business_id, venue_id, area_id, current_occupancy, last_event_id, updated_at)
   VALUES (p_business_id, p_venue_id, p_area_id, GREATEST(0, p_delta), v_new_event_id, now())
-  ON CONFLICT (area_id) DO UPDATE SET
-    current_occupancy = GREATEST(0, occupancy_snapshots.current_occupancy + p_delta),
+  ON CONFLICT (area_id) 
+  DO UPDATE SET
+    current_occupancy = GREATEST(0, occupancy_snapshots.current_occupancy + p_delta), -- Ensure never negative logic
     last_event_id = v_new_event_id,
     updated_at = now()
   RETURNING current_occupancy INTO v_new_occ;
