@@ -164,7 +164,20 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         refreshState();
         const interval = setInterval(refreshState, 2000); // Keep polling as backup/sync mechanism
-        return () => clearInterval(interval);
+
+        // Re-sync on tab focus
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                console.log('[Store] Tab visible, refreshing state...');
+                refreshState();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, []);
 
     // REALTIME SUBSCRIPTION
