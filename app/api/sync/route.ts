@@ -304,11 +304,20 @@ export async function POST(request: Request) {
                 if (isUserBanned(event.user_id, event.venue_id)) {
                     return NextResponse.json({ error: 'User is banned' }, { status: 403 });
                 }
+
+                // Resolve Business ID dynamically
+                let eventBizId = event.business_id;
+                if (!eventBizId && userId) {
+                    const { data: p } = await supabaseAdmin.from('profiles').select('business_id').eq('id', userId).single();
+                    if (p) eventBizId = p.business_id;
+                }
+                const finalEventBizId = eventBizId || 'biz_001';
+
                 // SUPABASE PERSISTENCE
                 let writeSuccess = false;
                 try {
                     const { error } = await supabaseAdmin.from('occupancy_events').insert({
-                        business_id: event.business_id || 'biz_001', // Fallback
+                        business_id: finalEventBizId,
                         venue_id: event.venue_id,
                         area_id: event.area_id,
                         session_id: event.clicr_id,
