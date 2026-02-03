@@ -244,6 +244,12 @@ export async function GET(request: Request) {
         const filteredEvents = data.events.filter(e => visibleVenueIds.includes(e.venue_id));
         const filteredScans = data.scanEvents.filter(s => visibleVenueIds.includes(s.venue_id));
 
+        // SECURITY FIX: Filter Users to only those in the same scope
+        const filteredUsers = data.users.filter(u =>
+            u.id === user.id ||
+            u.assigned_venue_ids.some(vid => visibleVenueIds.includes(vid))
+        );
+
         return NextResponse.json({
             ...data,
             venues: filteredVenues,
@@ -251,6 +257,7 @@ export async function GET(request: Request) {
             clicrs: filteredClicrs,
             events: filteredEvents,
             scanEvents: filteredScans,
+            users: filteredUsers,
             currentUser: user
         });
     }
@@ -420,6 +427,12 @@ export async function POST(request: Request) {
                 const filteredEvents = updatedData.events.filter(e => visibleVenueIds.includes(e.venue_id));
                 const filteredScans = updatedData.scanEvents.filter(s => visibleVenueIds.includes(s.venue_id));
 
+                // SECURITY FIX: Filter Users to only those in the same scope
+                const filteredUsers = updatedData.users.filter(u =>
+                    u.id === user.id ||
+                    u.assigned_venue_ids.some(vid => visibleVenueIds.includes(vid))
+                );
+
                 return NextResponse.json({
                     ...updatedData,
                     venues: filteredVenues,
@@ -427,6 +440,7 @@ export async function POST(request: Request) {
                     clicrs: filteredClicrs,
                     events: filteredEvents,
                     scanEvents: filteredScans,
+                    users: filteredUsers,
                     currentUser: user
                 });
             }
