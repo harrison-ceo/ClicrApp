@@ -201,6 +201,15 @@ export async function GET(request: Request) {
 
         if (!user) {
             console.log(`[API] Auto-creating user ${userEmail} (${userId})`);
+
+            // SELF-HEALING: Create Profile in Supabase if missing
+            await supabaseAdmin.from('profiles').upsert({
+                id: userId,
+                email: userEmail,
+                role: 'OWNER',
+                full_name: userEmail.split('@')[0]
+            });
+
             user = {
                 id: userId,
                 name: userEmail.split('@')[0],
@@ -213,7 +222,8 @@ export async function GET(request: Request) {
             addUser(user);
             const newData = readDB();
             newData.currentUser = user;
-            // Since we just wrote to local, we re-hydrate just in case, but usually unnecessary for new user
+
+            // Re-hydrate logic...
             // Optimization: Just return newData with correct current count from previous hydration?
             // Safer to re-hydrate or just rely on the fact that addUser didn't touch counts.
             // Let's re-attach the counts we just calculated.
