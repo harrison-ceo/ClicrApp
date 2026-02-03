@@ -88,7 +88,7 @@ export async function updateSession(request: NextRequest) {
             }
 
             // Scenario A: User needs to onboard but is somewhere else
-            if (!hasBusiness && path !== '/onboarding' && path !== '/login' && path !== '/signup') {
+            if (!hasBusiness && path !== '/onboarding' && path !== '/login' && path !== '/signup' && path !== '/debug') {
                 const url = request.nextUrl.clone()
                 url.pathname = '/onboarding'
                 return NextResponse.redirect(url)
