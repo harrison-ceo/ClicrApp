@@ -16,7 +16,7 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-4">
             <Link href="/login" className="text-sm font-semibold text-slate-400 hover:text-white transition-colors">Log in</Link>
-            <Link href="/login" className="bg-white text-black px-4 py-2 rounded-full text-sm font-bold hover:bg-slate-200 transition-colors">
+            <Link href="/signup" className="bg-white text-black px-4 py-2 rounded-full text-sm font-bold hover:bg-slate-200 transition-colors">
               Get Started
             </Link>
           </div>
@@ -37,7 +37,7 @@ export default function LandingPage() {
             Track capacity, ban bad actors, and automate your reporting.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link href="/login" className="w-full sm:w-auto px-8 py-4 bg-primary rounded-full font-bold text-lg hover:bg-primary-hover shadow-lg shadow-primary/25 transition-all flex items-center justify-center gap-2 group">
+            <Link href="/signup" className="w-full sm:w-auto px-8 py-4 bg-primary rounded-full font-bold text-lg hover:bg-primary-hover shadow-lg shadow-primary/25 transition-all flex items-center justify-center gap-2 group">
               Start Free Trial
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </Link>
@@ -69,7 +69,7 @@ export default function LandingPage() {
         </div>
       </div>
 
-    </div>
+    </div >
   );
 }
 

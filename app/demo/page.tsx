@@ -39,7 +39,43 @@ export default function InteractiveDemoPage() {
     const [occupancy, setOccupancy] = useState(482);
     const [capacity] = useState(650);
     const [syncPulse, setSyncPulse] = useState(false);
-    const [autoAddEnabled, setAutoAddEnabled] = useState(true);
+    const [autoAddEnabled, setAutoAddEnabled] = React.useState(true);
+
+    // Reporting Demo State
+    const [dateRange, setDateRange] = React.useState<'24H' | '7D' | '30D'>('24H');
+    const [visibleSeries, setVisibleSeries] = React.useState({ current: true, previous: true });
+
+    const toggleSeries = (series: 'current' | 'previous') => {
+        setVisibleSeries(prev => ({ ...prev, [series]: !prev[series] }));
+    };
+
+    const exportCSV = () => {
+        const data = getChartData(dateRange);
+        let csvContent = "Time,Foot Traffic\n";
+        data.forEach(row => {
+            csvContent += `${row.time},${row.value}\n`;
+        });
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        saveAs(blob, "clicr_demo_report.csv");
+    };
+
+    const exportPDF = () => {
+        const doc = new jsPDF();
+        doc.setFontSize(22);
+        doc.text("CLICR Venue Report", 20, 20);
+        doc.setFontSize(12);
+        doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 30);
+
+        const data = getChartData(dateRange).map(r => [r.time, r.value]);
+
+        autoTable(doc, {
+            head: [['Time', 'Foot Traffic']],
+            body: data,
+            startY: 40,
+        });
+
+        doc.save("clicr_demo_report.pdf");
+    };
 
     // -- Scanner State --
     const [scanResult, setScanResult] = useState<any>(null);
@@ -369,30 +405,47 @@ export default function InteractiveDemoPage() {
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-2 bg-slate-900 p-1 rounded-lg border border-slate-800">
-                                        <button
-                                            onClick={() => setCompareMode(false)}
-                                            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${!compareMode ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                                        >
-                                            Today
-                                        </button>
-                                        <button
-                                            onClick={() => setCompareMode(true)}
-                                            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${compareMode ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                                        >
-                                            Compare vs Last Week
-                                        </button>
+                                        {['24H', '7D', '30D'].map(r => (
+                                            <button
+                                                key={r}
+                                                onClick={() => setDateRange(r as any)}
+                                                className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${dateRange === r ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                            >
+                                                {r}
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
 
                                 <div className="flex-1 bg-slate-900/50 border border-white/10 rounded-2xl p-6 relative overflow-hidden flex flex-col">
                                     {/* Chart Header */}
-                                    <div className="flex justify-between items-center mb-8">
+                                    <div className="flex flex-wrap justify-between items-center mb-8 gap-4">
                                         <div>
                                             <div className="text-sm text-slate-500 font-bold uppercase tracking-wider">Total Foot Traffic</div>
                                             <div className="text-3xl font-bold flex items-baseline gap-3">
-                                                2,408 <span className="text-sm font-medium text-green-400">+12% vs last week</span>
+                                                {dateRange === '24H' ? '2,408' : dateRange === '7D' ? '14,205' : '58,930'}
+                                                <span className="text-sm font-medium text-green-400">
+                                                    {dateRange === '24H' ? '+12%' : dateRange === '7D' ? '+5%' : '+8%'} vs prev
+                                                </span>
                                             </div>
                                         </div>
+
+                                        {/* Legend Toggles */}
+                                        <div className="flex gap-4">
+                                            <button
+                                                onClick={() => toggleSeries('current')}
+                                                className={`flex items-center gap-2 text-sm font-medium transition-opacity ${visibleSeries.current ? 'opacity-100' : 'opacity-40 line-through'}`}
+                                            >
+                                                <div className="w-3 h-3 rounded-full bg-indigo-500" /> Current
+                                            </button>
+                                            <button
+                                                onClick={() => toggleSeries('previous')}
+                                                className={`flex items-center gap-2 text-sm font-medium transition-opacity ${visibleSeries.previous ? 'opacity-100' : 'opacity-40 line-through'}`}
+                                            >
+                                                <div className="w-3 h-3 rounded-full bg-slate-500 border border-white/20" /> Previous
+                                            </button>
+                                        </div>
+
                                         <div className="flex gap-2">
                                             <button onClick={exportCSV} className="flex items-center gap-2 px-3 py-2 bg-slate-800 rounded-lg text-sm font-bold border border-slate-700 hover:bg-slate-700 transition-colors">
                                                 <FileSpreadsheet className="w-4 h-4 text-green-400" /> CSV
@@ -406,23 +459,57 @@ export default function InteractiveDemoPage() {
                                     {/* Chart */}
                                     <div className="flex-1 w-full min-h-[300px]">
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={getChartData(compareMode)}>
+                                            <AreaChart data={getChartData(dateRange)}>
                                                 <defs>
                                                     <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                                                         <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
                                                         <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                                                     </linearGradient>
                                                 </defs>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                                                <XAxis dataKey="time" stroke="#ffffff40" tick={{ fill: '#ffffff40' }} />
-                                                <YAxis stroke="#ffffff40" tick={{ fill: '#ffffff40' }} />
-                                                <Tooltip
-                                                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff20', borderRadius: '8px' }}
-                                                    itemStyle={{ color: '#fff' }}
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                                                <XAxis
+                                                    dataKey="time"
+                                                    stroke="#ffffff40"
+                                                    tick={{ fill: '#ffffff40', fontSize: 12 }}
+                                                    tickLine={false}
+                                                    axisLine={false}
                                                 />
-                                                <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" name="Today" />
-                                                {compareMode && (
-                                                    <Area type="monotone" dataKey="prev" stroke="#ffffff30" strokeWidth={2} strokeDasharray="5 5" fill="transparent" name="Last Week" />
+                                                <YAxis
+                                                    stroke="#ffffff40"
+                                                    tick={{ fill: '#ffffff40', fontSize: 12 }}
+                                                    tickLine={false}
+                                                    axisLine={false}
+                                                    tickFormatter={(value) => value >= 1000 ? `${value / 1000}k` : value}
+                                                />
+                                                <Tooltip
+                                                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff20', borderRadius: '8px', color: '#fff' }}
+                                                    itemStyle={{ color: '#fff' }}
+                                                    formatter={(value: any) => [value?.toLocaleString(), 'Visitors']}
+                                                    labelStyle={{ color: '#94a3b8', marginBottom: '0.5rem' }}
+                                                />
+                                                {visibleSeries.current && (
+                                                    <Area
+                                                        type="monotone"
+                                                        dataKey="value"
+                                                        stroke="#6366f1"
+                                                        strokeWidth={3}
+                                                        fillOpacity={1}
+                                                        fill="url(#colorValue)"
+                                                        name="Current Period"
+                                                        animationDuration={1000}
+                                                    />
+                                                )}
+                                                {visibleSeries.previous && (
+                                                    <Area
+                                                        type="monotone"
+                                                        dataKey="prev"
+                                                        stroke="#ffffff30"
+                                                        strokeWidth={2}
+                                                        strokeDasharray="5 5"
+                                                        fill="transparent"
+                                                        name="Previous Period"
+                                                        animationDuration={1000}
+                                                    />
                                                 )}
                                             </AreaChart>
                                         </ResponsiveContainer>
@@ -450,10 +537,10 @@ export default function InteractiveDemoPage() {
                                 </p>
 
                                 <div className="grid md:grid-cols-2 gap-4 w-full max-w-lg pt-8">
-                                    <a href="/login?returnTo=/onboarding" className="w-full bg-primary hover:bg-primary-hover text-white py-4 rounded-xl font-bold text-lg shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all transform hover:scale-[1.02]">
+                                    <Link href="/signup" className="w-full bg-primary hover:bg-primary-hover text-white py-4 rounded-xl font-bold text-lg shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all transform hover:scale-[1.02] flex items-center justify-center">
                                         Start Free Pilot
-                                    </a>
-                                    <a href="mailto:sales@clicr.co" className="w-full bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold text-lg border border-slate-700 transition-all">
+                                    </Link>
+                                    <a href="mailto:sales@clicr.co" className="w-full bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold text-lg border border-slate-700 transition-all flex items-center justify-center">
                                         Book Live Demo
                                     </a>
                                 </div>
@@ -553,7 +640,7 @@ function ScannerPhoneFrame({ isScanning, result, onScanNext, onBanRequest, reado
                             animate={{ y: 0 }}
                             className={`absolute inset-0 z-10 flex flex-col ${result.type === 'VALID' ? 'bg-green-600' : 'bg-red-600'}`}
                         >
-                            <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-white space-y-4">
+                            <div className="flex-1 flex col items-center justify-center text-center p-6 text-white space-y-4">
                                 {result.type === 'VALID' ? (
                                     <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-green-600 mb-4 shadow-xl">
                                         <CheckCircle className="w-12 h-12" />
@@ -614,54 +701,45 @@ function ScannerPhoneFrame({ isScanning, result, onScanNext, onBanRequest, reado
 
 // --- Data Helpers ---
 
-function getChartData(compare: boolean) {
+function getChartData(range: '24H' | '7D' | '30D') {
     const data = [];
-    for (let i = 20; i < 24; i++) { // 8 PM to 4 AM
-        const hour = i > 23 ? i - 24 : i;
-        const label = `${hour === 0 ? 12 : hour > 12 ? hour - 12 : hour} ${i >= 12 && i < 24 ? 'PM' : 'AM'}`;
 
-        // Generate sine-wave like party traffic
-        const base = Math.sin((i - 20) * 0.5) * 400 + 100; // Peak around midnight
-        const val1 = Math.floor(Math.max(0, base + Math.random() * 50));
-        const val2 = Math.floor(Math.max(0, base * 0.9 + Math.random() * 50));
+    if (range === '24H') {
+        for (let i = 20; i < 24; i++) { // 8 PM to 4 AM
+            const hour = i > 23 ? i - 24 : i;
+            const label = `${hour === 0 ? 12 : hour > 12 ? hour - 12 : hour} ${i >= 12 && i < 24 ? 'PM' : 'AM'}`;
+            const base = Math.sin((i - 20) * 0.5) * 400 + 100;
+            data.push({ time: label, value: Math.floor(Math.max(0, base + Math.random() * 50)), prev: Math.floor(Math.max(0, base * 0.9)) });
+        }
+        for (let i = 0; i < 4; i++) {
+            const label = `${i === 0 ? 12 : i} AM`;
+            const base = Math.max(0, 500 - (i * 150));
+            data.push({ time: label, value: Math.floor(Math.max(0, base + Math.random() * 30)), prev: Math.floor(Math.max(0, base * 0.8)) });
+        }
+    } else if (range === '7D') {
+        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        days.forEach(d => {
+            const isWeekend = d === 'Fri' || d === 'Sat';
+            const val = isWeekend ? 2500 : 800;
+            data.push({
+                time: d,
+                value: val + Math.floor(Math.random() * 200),
+                prev: (val * 0.9) + Math.floor(Math.random() * 200)
+            });
+        });
+    } else { // 30D
+        for (let i = 1; i <= 30; i++) {
+            const isWeekend = i % 7 === 5 || i % 7 === 6; // Rough approx
+            const val = isWeekend ? 2500 : 800;
+            data.push({
+                time: `Day ${i}`,
+                value: val + Math.floor(Math.random() * 500),
+                prev: (val * 0.95) + Math.floor(Math.random() * 500)
+            })
+        }
+    }
 
-        data.push({ time: label, value: val1, prev: val2 });
-    }
-    // Add 0-4 AM
-    for (let i = 0; i < 4; i++) {
-        const label = `${i === 0 ? 12 : i} AM`;
-        const base = Math.max(0, 500 - (i * 150));
-        const val1 = Math.floor(Math.max(0, base + Math.random() * 30));
-        const val2 = Math.floor(Math.max(0, base * 0.8 + Math.random() * 30));
-        data.push({ time: label, value: val1, prev: val2 });
-    }
     return data;
 }
 
-function exportCSV() {
-    const data = getChartData(false);
-    let csvContent = "Time,Foot Traffic\n";
-    data.forEach(row => {
-        csvContent += `${row.time},${row.value}\n`;
-    });
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    saveAs(blob, "clicr_demo_report.csv");
-}
 
-function exportPDF() {
-    const doc = new jsPDF();
-    doc.setFontSize(22);
-    doc.text("CLICR Venue Report", 20, 20);
-    doc.setFontSize(12);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 30);
-
-    const data = getChartData(false).map(r => [r.time, r.value]);
-
-    autoTable(doc, {
-        head: [['Time', 'Foot Traffic']],
-        body: data,
-        startY: 40,
-    });
-
-    doc.save("clicr_demo_report.pdf");
-}

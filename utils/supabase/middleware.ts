@@ -95,6 +95,7 @@ export async function updateSession(request: NextRequest) {
             }
 
             // Scenario B: User finished onboarding but is trying to go back (or to login)
+            // Fix: Add /signup to this list so logged-in users are redirected to dashboard if they try to sign up again
             if (hasBusiness && (path === '/onboarding' || path === '/login' || path === '/signup' || path === '/')) {
                 const url = request.nextUrl.clone()
                 url.pathname = '/dashboard'
