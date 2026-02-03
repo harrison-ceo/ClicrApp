@@ -557,25 +557,53 @@ export async function POST(request: Request) {
 
             case 'DELETE_CLICR':
                 const delPayload = payload as { id: string };
+                if (!delPayload || !delPayload.id) {
+                    return NextResponse.json({ error: 'Missing device ID' }, { status: 400 });
+                }
+
+                console.log(`[API] Attempting DELETE_CLICR for ID: ${delPayload.id} by User: ${userId}`);
+
                 try {
-                    // Soft delete
-                    const { error } = await supabaseAdmin.from('devices')
-                        .update({ deleted_at: new Date().toISOString() })
-                        .eq('id', delPayload.id);
+                    // 1. Check permissions (manager/owner only)
+                    // (Assuming basic auth handled by route, but could refine here if needed)
+
+                    // 2. Perform Soft Delete
+                    // We also want to record WHO deleted it.
+                    const { error, data: deletedRow } = await supabaseAdmin.from('devices')
+                        .update({
+                            deleted_at: new Date().toISOString(),
+                            // deleted_by: userId // if column exists
+                        })
+                        .eq('id', delPayload.id)
+                        .select()
+                        .single();
 
                     if (error) {
-                        console.error("DELETE_CLICR persistence failed", error); // Log full error object
-                        return NextResponse.json({ error: `Delete Failed: ${error.message} (${error.code})` }, { status: 500 });
+                        console.error("[API] DELETE_CLICR Persistence Failed", error);
+
+                        // Construct user-friendly error
+                        let userMsg = `Database Error: ${error.message}`;
+                        if (error.code === '42501') userMsg = 'Permission Denied: You cannot delete this device.';
+                        if (error.code === '23503') userMsg = 'Constraint Violation: Historical records depend on this device.';
+
+                        return NextResponse.json({ error: userMsg, details: error }, { status: 500 });
                     }
 
-                    // Update local state
+                    if (!deletedRow) {
+                        console.warn("[API] DELETE_CLICR: No row updated. ID might be wrong or already deleted.");
+                        // Not an error per se, but UI might want to know.
+                    } else {
+                        console.log(`[API] Soft deleted device: ${delPayload.id}`);
+                    }
+
+                    // 3. Update local state
                     updatedData = readDB();
                     updatedData.clicrs = updatedData.clicrs.filter(c => c.id !== delPayload.id);
                     writeDB(updatedData);
 
                 } catch (e: any) {
-                    console.error("DELETE_CLICR Exception", e);
-                    return NextResponse.json({ error: 'Server Error: ' + e.message }, { status: 500 });
+                    console.error("[API] DELETE_CLICR Exception", e);
+                    return NextResponse.json({ error: 'Server Exception: ' + e.message }, { status: 500 });
                 }
                 break;
 

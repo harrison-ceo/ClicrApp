@@ -520,14 +520,18 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 setState(prev => ({ ...prev, ...updatedDB }));
                 return { success: true };
             } else {
-                const errData = await res.json().catch(() => ({}));
+                const errData = await res.json().catch(() => ({ error: 'Unknown JSON parsing error' }));
                 console.error("Delete Clicr Failed API", errData);
+                setLastError(`Delete Failed: ${errData.error || res.statusText}`);
+
                 // Revert
                 if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
+
                 return { success: false, error: errData.error || res.statusText };
             }
         } catch (e: any) {
             console.error("Delete Clicr Network Error", e);
+            setLastError(`Delete Failed: ${e.message}`);
             if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
             return { success: false, error: e.message };
         }
