@@ -353,15 +353,40 @@ export async function POST(request: Request) {
                 updatedData = updateClicr(clicr);
                 break;
 
+            case 'ADD_VENUE':
+                try {
+                    await supabaseAdmin.from('venues').insert({
+                        id: payload.id,
+                        business_id: payload.business_id,
+                        name: payload.name,
+                        address: payload.address,
+                        total_capacity: payload.capacity,
+                        timezone: payload.timezone
+                    });
+                } catch (e) { console.error("Add Venue Persistence Failed", e); }
+                updatedData = addVenue(payload);
+                break;
+
+            case 'UPDATE_VENUE': updatedData = updateVenue(payload); break; // TODO: Persist update
+
+            case 'ADD_AREA':
+                try {
+                    await supabaseAdmin.from('areas').insert({
+                        id: payload.id,
+                        venue_id: payload.venue_id,
+                        name: payload.name,
+                        capacity: payload.default_capacity
+                    });
+                } catch (e) { console.error("Add Area Persistence Failed", e); }
+                updatedData = addArea(payload);
+                break;
+
             case 'UPDATE_AREA': updatedData = updateArea(payload as Area); break;
-            case 'ADD_VENUE': updatedData = addVenue(payload); break;
-            case 'UPDATE_VENUE': updatedData = updateVenue(payload); break;
             case 'CREATE_BAN': updatedData = addBan(payload as BanRecord); break;
             case 'REVOKE_BAN': updatedData = revokeBan(payload.banId, payload.revokedByUserId, payload.reason); break;
             case 'CREATE_PATRON_BAN': updatedData = createPatronBan(payload.person, payload.ban, payload.log); break;
             case 'UPDATE_PATRON_BAN': updatedData = updatePatronBan(payload.ban, payload.log); break;
             case 'RECORD_BAN_ENFORCEMENT': updatedData = recordBanEnforcement(payload as BanEnforcementEvent); break;
-            case 'ADD_AREA': updatedData = addArea(payload); break;
             case 'ADD_DEVICE': updatedData = addDevice(payload); break;
             case 'UPDATE_DEVICE': updatedData = updateDevice(payload); break;
             case 'ADD_CAPACITY_OVERRIDE': updatedData = addCapacityOverride(payload); break;
