@@ -65,14 +65,27 @@ export async function updateSession(request: NextRequest) {
         // Exclude system routes from this check to avoid breaking assets/API
         if (!path.startsWith('/api') && !path.startsWith('/_next') && !path.includes('.')) {
 
-            // Check Profile for Business Link
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('business_id')
-                .eq('id', user.id)
-                .single();
+            // Check Membership (Source of Truth)
+            let hasBusiness = false;
 
-            const hasBusiness = profile?.business_id;
+            // 1. Try checking business_members (New Architecture)
+            const { data: memberships, error: memberError } = await supabase
+                .from('business_members')
+                .select('business_id')
+                .eq('user_id', user.id);
+
+            if (!memberError && memberships && memberships.length > 0) {
+                hasBusiness = true;
+            } else {
+                // 2. Fallback to Profile (Legacy/Migration Phase)
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('business_id')
+                    .eq('id', user.id)
+                    .single();
+
+                if (profile?.business_id) hasBusiness = true;
+            }
 
             // Scenario A: User needs to onboard but is somewhere else
             if (!hasBusiness && path !== '/onboarding' && path !== '/login' && path !== '/signup') {
