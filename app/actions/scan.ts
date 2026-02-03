@@ -1,7 +1,7 @@
 'use server';
 
+import { createHash } from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { ComplianceEngine } from '@/lib/compliance';
 import { IDScanEvent } from '@/lib/types';
 import { ParsedID } from '@/lib/aamva';
 
@@ -19,10 +19,31 @@ export async function submitScanAction(
 
     const issuingState = rawDetails.state || 'Unknown';
 
+    // GENERATE SECURE HASH (Standardized format: ID_NUMBER:STATE uppercase)
+    const idString = `${rawDetails.idNumber || ''}:${issuingState}`.toUpperCase();
+    const idHash = createHash('sha256').update(idString).digest('hex');
+
+    // 0. SERVER-SIDE BAN CHECK (Source of Truth)
+    let finalStatus = result.status === 'DENIED' ? 'DENIED' : 'ACCEPTED';
+
+    // Check if this hash is banned
+    const { data: banHit } = await supabaseAdmin
+        .from('bans')
+        .select('*')
+        .eq('id_hash', idHash)
+        .eq('active', true)
+        .eq('business_id', (await getBusinessId(venueId))) // Optional: Check scope? For now global hash check is safer
+        .maybeSingle();
+
+    if (banHit) {
+        console.log("SERVER ACTION: DETECTED BAN HIT", banHit.id);
+        finalStatus = 'BANNED';
+    }
+
     // 1. Construct the object for scan_events (Legacy/Quick Table)
     const scanEvent = {
         venue_id: venueId,
-        scan_result: result.status === 'DENIED' ? 'DENIED' : 'ACCEPTED',
+        scan_result: finalStatus as any, // Cast to match type
         age: rawDetails.age || 0,
         age_band: getAgeBand(rawDetails.age || 0),
         sex: rawDetails.sex || 'U',
@@ -49,58 +70,56 @@ export async function submitScanAction(
 
     if (error) {
         console.error("SERVER ACTION ERROR: Supabase Write to scan_events failed:", error);
-        // Throwing error so client knows something went wrong
         throw new Error(`Failed to save scan: ${error.message}`);
     }
 
-    console.log("SERVER ACTION SUCCESS: Saved to scan_events:", data.id);
-
-    // 3. Optional: Attempt duplicate write to scan_logs for occupancy/analytics if schema allows
-    // We try to find business_id from venueId first. This is a "best effort" look up.
+    // 3. Optional: Attempt duplicate write to scan_logs for occupancy/analytics
     try {
-        const { data: venueData } = await supabaseAdmin
-            .from('venues')
-            .select('business_id, id')
-            .eq('id', venueId)
-            .single();
+        const businessId = await getBusinessId(venueId);
 
-        if (venueData && venueData.business_id) {
+        if (businessId) {
             // Write to scan_logs
             await supabaseAdmin.from('scan_logs').insert({
-                business_id: venueData.business_id,
-                venue_id: venueData.id,
+                business_id: businessId,
+                venue_id: venueId,
                 timestamp: scanEvent.timestamp,
                 age: scanEvent.age,
                 gender: scanEvent.sex,
                 zip_code: scanEvent.zip_code,
-                scan_result: result.status === 'DENIED' ? 'DENIED' : 'ACCEPTED',
-                id_hash: 'todo-hash', // Placeholder
+                scan_result: finalStatus === 'DENIED' || finalStatus === 'BANNED' ? 'DENIED' : 'ACCEPTED', // Map BANNED to DENIED for analytics enum match
+                id_hash: idHash, // REAL HASH
                 created_at: scanEvent.timestamp
             });
-            console.log("SERVER ACTION: Also synced to scan_logs");
 
             // If Accepted, also increment Occupancy
             if (scanEvent.scan_result === 'ACCEPTED') {
+                // ... (existing occupancy increment)
                 await supabaseAdmin.from('occupancy_events').insert({
-                    business_id: venueData.business_id,
-                    venue_id: venueData.id,
+                    business_id: businessId,
+                    venue_id: venueId,
                     timestamp: scanEvent.timestamp,
-                    flow_type: 'IN', // Scanning implies entry
+                    flow_type: 'IN',
                     delta: 1,
                     event_type: 'SCAN'
                 });
-                console.log("SERVER ACTION: Incremented Occupancy");
             }
         }
     } catch (e) {
         console.warn("SERVER ACTION: Could not sync to scan_logs/occupancy (non-fatal):", e);
     }
 
-    // Convert back to IDScanEvent
+    // Convert back to IDScanEvent with correct status
     return {
         ...data,
+        scan_result: finalStatus, // Return the BANNED status so UI can react
         timestamp: new Date(data.timestamp).getTime()
     } as IDScanEvent;
+}
+
+// Helper to avoid repetitive lookups if possible, but for Safety we fetch fresh
+async function getBusinessId(venueId: string) {
+    const { data } = await supabaseAdmin.from('venues').select('business_id').eq('id', venueId).single();
+    return data?.business_id;
 }
 
 export async function getRecentScansAction(venueId?: string): Promise<IDScanEvent[]> {
