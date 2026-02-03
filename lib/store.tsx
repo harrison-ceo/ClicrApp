@@ -50,11 +50,12 @@ type AppContextType = AppState & {
     addVenue: (venue: Venue) => Promise<void>;
     updateVenue: (venue: Venue) => Promise<void>;
     addArea: (area: Area) => Promise<void>;
-    updateArea: (area: Area) => Promise<void>;
+    updateArea: (area: Area) => Promise<boolean>;
 
     // Devices
     addClicr: (clicr: Clicr) => Promise<boolean>;
     updateClicr: (clicr: Clicr) => Promise<void>;
+    deleteClicr: (clicrId: string) => Promise<boolean>;
     addDevice: (device: Device) => Promise<void>;
     updateDevice: (device: Device) => Promise<void>;
 
@@ -199,6 +200,18 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             return {
                 ...prev,
                 clicrs: updatedClicrs,
+                // OPTIMISTICALLY UPDATE AREA OCCUPANCY
+                areas: prev.areas.map(a => {
+                    if (a.id === data.area_id) {
+                        // Fallback to summing if current_occupancy is missing in cache (migration edge case)
+                        const current = a.current_occupancy ?? prev.clicrs.filter(c => c.area_id === a.id).reduce((sum, c) => sum + c.current_count, 0);
+                        return {
+                            ...a,
+                            current_occupancy: Math.max(0, current + data.delta)
+                        };
+                    }
+                    return a;
+                }),
                 events: [newEvent, ...prev.events] // Prepend locally
             };
         });
@@ -395,7 +408,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const updateArea = async (area: Area) => {
+        // Optimistic
+        const originalArea = state.areas.find(a => a.id === area.id);
         setState(prev => ({ ...prev, areas: prev.areas.map(a => a.id === area.id ? area : a) }));
+
         try {
             const res = await fetch('/api/sync', {
                 method: 'POST',
@@ -405,11 +421,48 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             if (res.ok) {
                 const updatedDB = await res.json();
                 setState(prev => ({ ...prev, ...updatedDB }));
+                return true;
+            } else {
+                // Revert
+                console.error("Update Area Failed API");
+                if (originalArea) setState(prev => ({ ...prev, areas: prev.areas.map(a => a.id === area.id ? originalArea : a) }));
+                return false;
             }
-        } catch (error) { console.error("Failed to update area", error); }
+        } catch (error) {
+            console.error("Failed to update area", error);
+            if (originalArea) setState(prev => ({ ...prev, areas: prev.areas.map(a => a.id === area.id ? originalArea : a) }));
+            return false;
+        }
     };
 
     // --- DEVICES ---
+
+    const deleteClicr = async (clicrId: string) => {
+        // Optimistic - remove from list
+        const originalClicr = state.clicrs.find(c => c.id === clicrId);
+        setState(prev => ({
+            ...prev,
+            clicrs: prev.clicrs.filter(c => c.id !== clicrId)
+        }));
+
+        try {
+            const res = await authFetch({ action: 'DELETE_CLICR', payload: { id: clicrId } });
+            if (res.ok) {
+                const updatedDB = await res.json();
+                setState(prev => ({ ...prev, ...updatedDB }));
+                return true;
+            } else {
+                console.error("Delete Clicr Failed API");
+                // Revert
+                if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
+                return false;
+            }
+        } catch (e) {
+            console.error("Delete Clicr Network Error", e);
+            if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
+            return false;
+        }
+    };
 
     const addClicr = async (clicr: Clicr) => {
         // Optimistic Update
@@ -638,7 +691,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     return (
-        <AppContext.Provider value={{ ...state, recordEvent, recordScan, resetCounts, addUser, updateUser, removeUser, updateBusiness, addClicr, updateClicr, addVenue, updateVenue, addArea, updateArea, addDevice, updateDevice, addCapacityOverride, addVenueAuditLog, addBan, revokeBan, createPatronBan, updatePatronBan, recordBanEnforcement } as AppContextType}>
+        <AppContext.Provider value={{ ...state, recordEvent, recordScan, resetCounts, addUser, updateUser, removeUser, updateBusiness, addClicr, updateClicr, deleteClicr, addVenue, updateVenue, addArea, updateArea, addDevice, updateDevice, addCapacityOverride, addVenueAuditLog, addBan, revokeBan, createPatronBan, updatePatronBan, recordBanEnforcement } as AppContextType}>
             {children}
         </AppContext.Provider>
     );

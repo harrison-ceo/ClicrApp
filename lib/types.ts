@@ -99,6 +99,7 @@ export type Area = {
     // Legacy fields
     capacity_limit?: number; // map to default_capacity
     active?: boolean; // map to is_active
+    current_occupancy?: number; // Server-side calculated true occupancy
 };
 
 export type FlowMode = 'IN_ONLY' | 'OUT_ONLY' | 'BIDIRECTIONAL';

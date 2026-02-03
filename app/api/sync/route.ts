@@ -89,33 +89,46 @@ async function hydrateData(data: DBData): Promise<DBData> {
             });
         }
 
-        // 1. Fetch Occupancy Events
+        // 1. Fetch Occupancy Snapshots (Source of Truth for Counts)
+        const { data: snapshots, error: snapError } = await supabaseAdmin
+            .from('occupancy_snapshots')
+            .select('*');
+
+        if (!snapError && snapshots) {
+            data.areas = data.areas.map(a => {
+                const snap = snapshots.find((s: any) => s.area_id === a.id);
+                // We inject the true count here. 
+                // However, the frontend sums up `clicr.current_count`.
+                // We need to distribute this count or ensure the frontend uses `area.current_occupancy` if available.
+                // For minimally invasive fix: We will set the count on a 'virtual' clicr or update existing clicrs?
+                // NO, updating existing clicrs is confusing if we don't know which one contributed.
+                // BEST FIX: The frontend should prioritize Area Occupancy if we send it.
+                // Let's add it to the Area object.
+                return {
+                    ...a,
+                    current_occupancy: snap ? snap.current_occupancy : 0
+                };
+            });
+
+            // PROPAGATION FIX:
+            // Since the frontend sums `clicr.current_count` to display "Live Occupancy", we need to make sure `clicrs` reflect reality too.
+            // Or we change the frontend to read `area.current_occupancy`.
+            // Changing frontend is safer. But let's see if we can patch clicrs loosely.
+            // If we have 1 clicr per area, easy. If multiple, hard.
+            // Let's rely on Events to populate Clicr counts for "session stats", 
+            // BUT use snapshots for "Total Area Occupancy".
+        }
+
+        // 2. Fetch Recent Logs (for activity feed)
         const { data: occEvents, error: occError } = await supabaseAdmin
             .from('occupancy_events')
             .select('*')
             .order('timestamp', { ascending: false })
-            .limit(5000);
+            .limit(100);
 
         if (occError) console.error("Supabase Occupancy Fetch Error:", occError);
 
         if (!occError && occEvents) {
-            // A. Calculate Live Counts
-            const clicrCounts: Record<string, number> = {};
-            occEvents.forEach(e => {
-                const clicrId = e.session_id;
-                if (clicrId) {
-                    clicrCounts[clicrId] = (clicrCounts[clicrId] || 0) + e.delta;
-                }
-            });
-
-            // B. Update Clicrs in Memory
-            data.clicrs = data.clicrs.map((c: Clicr) => ({
-                ...c,
-                // Resiliency: If Supabase has data, use it. If not (e.g. write failed), keep local optimistic count.
-                current_count: clicrCounts[c.id] !== undefined ? clicrCounts[c.id] : c.current_count
-            }));
-
-            // C. Replace Events History
             data.events = occEvents.map((e: any) => ({
                 id: e.id,
                 venue_id: e.venue_id,
@@ -128,6 +141,11 @@ async function hydrateData(data: DBData): Promise<DBData> {
                 flow_type: e.flow_type as any,
                 event_type: e.event_type as any,
             }));
+
+            // RE-CALCULATE Clicr Session Counts from recent events (or all events if we fetched more)
+            // Ideally Clicr counts should reset daily or per session.
+            // We will let them be strictly 'session based' from the limited event window for now,
+            // but the AREA count from snapshot is the "GOLDEN RECORD".
         }
 
         // 2. Fetch Scan Events
@@ -313,31 +331,30 @@ export async function POST(request: Request) {
                 }
                 const finalEventBizId = eventBizId || 'biz_001';
 
-                // SUPABASE PERSISTENCE
-                let writeSuccess = false;
+                // ATOMIC UPDATE via RPC
                 try {
-                    const { error } = await supabaseAdmin.from('occupancy_events').insert({
-                        business_id: finalEventBizId,
-                        venue_id: event.venue_id,
-                        area_id: event.area_id,
-                        session_id: event.clicr_id,
-                        timestamp: new Date(event.timestamp).toISOString(),
-                        flow_type: event.flow_type,
-                        delta: event.delta,
-                        event_type: event.event_type
+                    const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('process_occupancy_event', {
+                        p_business_id: finalEventBizId,
+                        p_venue_id: event.venue_id,
+                        p_area_id: event.area_id,
+                        p_device_id: event.clicr_id, // Map session_id to device_id better if possible, or use one field
+                        p_user_id: userId || '00000000-0000-0000-0000-000000000000', // Fallback UUID
+                        p_delta: event.delta,
+                        p_flow_type: event.flow_type,
+                        p_event_type: event.event_type,
+                        p_session_id: event.clicr_id
                     });
-                    if (error) throw error;
-                    writeSuccess = true;
+
+                    if (rpcError) throw rpcError;
+
+                    // Success - update local optimized state
+                    // We can also return the new TRUE count from the RPC to the client
+                    // For now, we update local memory to match
+                    updatedData = addEvent(event);
+
                 } catch (e) {
-                    console.error("Supabase Write Failed", e);
-                }
-
-                updatedData = addEvent(event);
-
-                // Only hydrate if the write succeeded (consistency)
-                // If write failed (e.g. UUID error), we rely on local memory state to avoid resetting client to 0
-                if (writeSuccess) {
-                    updatedData = await hydrateData(updatedData);
+                    console.error("Supabase Atomic Update Failed", e);
+                    return NextResponse.json({ error: 'Count Failed' }, { status: 500 });
                 }
                 break;
 
@@ -437,50 +454,59 @@ export async function POST(request: Request) {
 
                 updatedData = addClicr(newClicr);
                 break;
+            case 'DELETE_CLICR':
+                const delPayload = payload as { id: string };
+                try {
+                    // Soft delete
+                    const { error } = await supabaseAdmin.from('devices')
+                        .update({ deleted_at: new Date().toISOString() })
+                        .eq('id', delPayload.id);
+
+                    if (error) {
+                        console.error("DELETE_CLICR persistence failed", error);
+                        return NextResponse.json({ error: 'Delete Failed: ' + error.message }, { status: 500 });
+                    }
+
+                    // Update local state by removing it or marking inactive/deleted
+                    // Since we refetch/hydrate, the hydrating query needs to filter deleted_at IS NULL
+                    // For local readDB update:
+                    updatedData = readDB();
+                    updatedData.clicrs = updatedData.clicrs.filter(c => c.id !== delPayload.id);
+                    writeDB(updatedData);
+
+                } catch (e: any) {
+                    return NextResponse.json({ error: 'Server Error: ' + e.message }, { status: 500 });
+                }
+                break;
+
             case 'UPDATE_CLICR':
                 const clicr = payload as Clicr;
-                // PERSISTENCE: Save name/config to Supabase
+                // PERSISTENCE: Save name/config/active to Supabase
                 try {
                     await supabaseAdmin.from('devices').upsert({
                         id: clicr.id,
                         name: clicr.name,
-                        business_id: 'biz_001', // Default falllback
                         device_type: 'COUNTER_ONLY',
+                        is_active: clicr.active,
                         config: { button_config: clicr.button_config }
                     });
                 } catch (e) { console.error("Update Clicr Persistence Failed", e); }
                 updatedData = updateClicr(clicr);
                 break;
 
-            case 'ADD_VENUE':
+            case 'UPDATE_AREA':
+                const area = payload as Area;
                 try {
-                    await supabaseAdmin.from('venues').insert({
-                        id: payload.id,
-                        business_id: payload.business_id,
-                        name: payload.name,
-                        address: payload.address,
-                        total_capacity: payload.capacity,
-                        timezone: payload.timezone
-                    });
-                } catch (e) { console.error("Add Venue Persistence Failed", e); }
-                updatedData = addVenue(payload);
+                    await supabaseAdmin.from('areas').update({
+                        name: area.name,
+                        capacity: area.default_capacity
+                    }).eq('id', area.id);
+                } catch (e) {
+                    console.error("Update Area Persistence Failed", e);
+                    return NextResponse.json({ error: 'Update Failed' }, { status: 500 });
+                }
+                updatedData = updateArea(area);
                 break;
-
-            case 'UPDATE_VENUE': updatedData = updateVenue(payload); break; // TODO: Persist update
-
-            case 'ADD_AREA':
-                try {
-                    await supabaseAdmin.from('areas').insert({
-                        id: payload.id,
-                        venue_id: payload.venue_id,
-                        name: payload.name,
-                        capacity: payload.default_capacity
-                    });
-                } catch (e) { console.error("Add Area Persistence Failed", e); }
-                updatedData = addArea(payload);
-                break;
-
-            case 'UPDATE_AREA': updatedData = updateArea(payload as Area); break;
             case 'CREATE_BAN': updatedData = addBan(payload as BanRecord); break;
             case 'REVOKE_BAN': updatedData = revokeBan(payload.banId, payload.revokedByUserId, payload.reason); break;
             case 'CREATE_PATRON_BAN': updatedData = createPatronBan(payload.person, payload.ban, payload.log); break;

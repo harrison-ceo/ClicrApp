@@ -1,50 +1,56 @@
--- Fix Devices RLS Policies
--- Enables RLS and sets up policies for View and Management
+-- 11_fix_devices_rls.sql (Revised with Type Casts)
 
+-- 1. Enable RLS on devices (safe to run multiple times)
 ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
 
--- 1. View Policy: Users can view devices belonging to their business
+-- 2. Drop existing policies to avoid conflicts
+DROP POLICY IF EXISTS "View own business devices" ON devices;
+DROP POLICY IF EXISTS "Manage own business devices" ON devices;
+DROP POLICY IF EXISTS "Update own business devices" ON devices;
+DROP POLICY IF EXISTS "Delete own business devices" ON devices;
+DROP POLICY IF EXISTS "Users can view devices for their business" ON devices;
+DROP POLICY IF EXISTS "Owners/Managers can insert devices" ON devices;
+
+-- 3. View Policy
+-- We cast to text to handle cases where business_id or profile IDs might be mixed types (UUID/Text) in the DB
 CREATE POLICY "View own business devices" ON devices
   FOR SELECT
   USING (
-    business_id IN (
-      SELECT business_id FROM profiles
-      WHERE id = auth.uid()
+    business_id::text IN (
+      SELECT business_id::text FROM profiles
+      WHERE id::text = auth.uid()::text
     )
   );
 
--- 2. Insert Policy: Owners and Managers can add devices
--- Note: 'profiles' table stores the role. 
--- Adjust this if 'business_members' table is the source of truth for some setups, 
--- but schema.sql defines business_id directly on profiles for single-tenant simplicty.
+-- 4. Insert Policy
 CREATE POLICY "Manage own business devices" ON devices
   FOR INSERT
   WITH CHECK (
-    business_id IN (
-      SELECT business_id FROM profiles
-      WHERE id = auth.uid()
-      AND role IN ('OWNER', 'MANAGER')
+    business_id::text IN (
+      SELECT business_id::text FROM profiles
+      WHERE id::text = auth.uid()::text
+      AND role::text IN ('OWNER', 'MANAGER', 'ADMIN', 'SUPERVISOR')
     )
   );
 
--- 3. Update Policy
+-- 5. Update Policy
 CREATE POLICY "Update own business devices" ON devices
   FOR UPDATE
   USING (
-    business_id IN (
-      SELECT business_id FROM profiles
-      WHERE id = auth.uid()
-      AND role IN ('OWNER', 'MANAGER')
+    business_id::text IN (
+      SELECT business_id::text FROM profiles
+      WHERE id::text = auth.uid()::text
+      AND role::text IN ('OWNER', 'MANAGER', 'ADMIN', 'SUPERVISOR')
     )
   );
 
--- 4. Delete Policy
+-- 6. Delete Policy
 CREATE POLICY "Delete own business devices" ON devices
   FOR DELETE
   USING (
-    business_id IN (
-      SELECT business_id FROM profiles
-      WHERE id = auth.uid()
-      AND role IN ('OWNER', 'MANAGER')
+    business_id::text IN (
+      SELECT business_id::text FROM profiles
+      WHERE id::text = auth.uid()::text
+      AND role::text IN ('OWNER', 'MANAGER', 'ADMIN', 'SUPERVISOR')
     )
   );

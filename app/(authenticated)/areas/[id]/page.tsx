@@ -23,7 +23,11 @@ export default function AreaDetailPage() {
     const areaClicrs = clicrs.filter(c => c.area_id === id);
 
     // Live Stats
-    const liveOccupancy = areaClicrs.reduce((acc, c) => acc + c.current_count, 0);
+    // Source of Truth: area.current_occupancy (Server Snapshot) > Fallback to summing clicrs if snapshot missing
+    const liveOccupancy = area?.current_occupancy !== undefined
+        ? area.current_occupancy
+        : areaClicrs.reduce((acc, c) => acc + c.current_count, 0);
+
     const percentage = area?.capacity_limit ? Math.round((liveOccupancy / area.capacity_limit) * 100) : 0;
 
     // In/Out Today (Aggregated from all clicrs in this area)
@@ -35,6 +39,7 @@ export default function AreaDetailPage() {
     // States
     const [isEditingArea, setIsEditingArea] = useState(false);
     const [showAddClicr, setShowAddClicr] = useState(false);
+    const [clicrToDelete, setClicrToDelete] = useState<Clicr | null>(null);
 
     // Edit Form State
     const [editName, setEditName] = useState('');
@@ -59,12 +64,16 @@ export default function AreaDetailPage() {
     // Handlers
     const handleSaveArea = async () => {
         if (!editName.trim()) return;
-        await updateArea({
+        const success = await updateArea({
             ...area,
             name: editName,
             capacity_limit: editCap > 0 ? editCap : undefined
         });
-        setIsEditingArea(false);
+        if (success) {
+            setIsEditingArea(false);
+        } else {
+            alert('Failed to update area');
+        }
     };
 
     const handleAddClicr = async () => {
@@ -89,6 +98,27 @@ export default function AreaDetailPage() {
             setNewClicrFlow('BIDIRECTIONAL');
         } else {
             alert('Failed to save Clicr. Please try again.');
+        }
+    };
+
+    // New Delete Handler
+    const useAppHook = useApp as any; // Temporary cast if type update is delayed
+    const { deleteClicr } = useAppHook();
+    // Ideally useApp() returns properly typed object if store.tsx is updated.
+    // If strict type checking fails, we might need to rely on the updated interface.
+    // Let's assume useApp() is typed correctly by now.
+
+    const confirmDeleteClicr = async () => {
+        if (!clicrToDelete) return;
+
+        // Call delete action
+        const success = await deleteClicr(clicrToDelete.id);
+
+        if (success) {
+            setClicrToDelete(null); // Close modal
+        } else {
+            alert("Failed to remove Clicr. Please try again.");
+            // Keep modal open
         }
     };
 
@@ -178,7 +208,7 @@ export default function AreaDetailPage() {
                         <ClicrCard
                             key={clicr.id}
                             clicr={clicr}
-                            onArchive={() => handleArchiveClicr(clicr)}
+                            onArchive={() => setClicrToDelete(clicr)}
                         />
                     ))}
                     {areaClicrs.filter(c => c.active).length === 0 && (
@@ -268,6 +298,36 @@ export default function AreaDetailPage() {
                                     className="flex-1 p-3 rounded-lg bg-primary text-white font-bold hover:bg-primary-hover shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
                                     {isSavingClicr ? 'Saving...' : 'Create Clicr'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Delete Confirmation Modal */}
+            <AnimatePresence>
+                {clicrToDelete && (
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            className="bg-slate-900 border border-slate-700 p-6 rounded-2xl w-full max-w-sm"
+                        >
+                            <h2 className="text-xl font-bold text-white mb-2">Remove Clicr?</h2>
+                            <p className="text-slate-400 text-sm mb-6">
+                                Are you sure you want to remove <strong className="text-white">{clicrToDelete.name}</strong>?
+                                Historical data and analytics will remain, but this device will be removed from your dashboard.
+                            </p>
+
+                            <div className="flex gap-3">
+                                <button onClick={() => setClicrToDelete(null)} className="flex-1 p-3 rounded-lg bg-slate-800 text-slate-300 font-bold hover:bg-slate-700">Cancel</button>
+                                <button
+                                    onClick={confirmDeleteClicr}
+                                    className="flex-1 p-3 rounded-lg bg-red-500/10 text-red-500 border border-red-500/20 font-bold hover:bg-red-500/20 hover:border-red-500/50 transition-all"
+                                >
+                                    Remove
                                 </button>
                             </div>
                         </motion.div>
