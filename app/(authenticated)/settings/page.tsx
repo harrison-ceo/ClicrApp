@@ -8,7 +8,24 @@ import { cn } from '@/lib/utils';
 
 export default function SettingsPage() {
     const { business, users, addUser, currentUser, bans = [], addBan, venues } = useApp();
-    const [activeTab, setActiveTab] = useState<'business' | 'users'>('business');
+    const [activeTab, setActiveTab] = useState<'business' | 'users' | 'profile'>('business');
+
+    // Delete Self State
+    const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+    const [deleteAccountConfirm, setDeleteAccountConfirm] = useState('');
+
+    const handleDeleteAccount = async () => {
+        try {
+            await fetch('/api/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || '' },
+                body: JSON.stringify({ action: 'DELETE_ACCOUNT', payload: { id: currentUser?.id } })
+            });
+            window.location.href = '/login';
+        } catch (e) {
+            console.error("Failed to delete account", e);
+        }
+    };
 
     // Ban Modal State
     const [showBanModal, setShowBanModal] = useState(false);
@@ -146,6 +163,12 @@ export default function SettingsPage() {
                 >
                     User Management
                 </button>
+                <button
+                    onClick={() => setActiveTab('profile')}
+                    className={`pb-2 px-1 font-medium transition-colors ${activeTab === 'profile' ? 'text-primary border-b-2 border-primary' : 'text-slate-400 hover:text-white'}`}
+                >
+                    My Account
+                </button>
             </div>
 
             {/* Business Tab */}
@@ -267,6 +290,39 @@ export default function SettingsPage() {
                                 </div>
                             );
                         })}
+                    </div>
+                </div>
+            )}
+
+            {/* Profile Tab */}
+            {activeTab === 'profile' && currentUser && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl">
+                    <div className="glass-panel p-8 rounded-xl">
+                        <h2 className="text-xl font-bold text-white mb-6">Personal Information</h2>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Full Name</label>
+                                <input type="text" value={currentUser.name} readOnly className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white opacity-60 cursor-not-allowed" />
+                            </div>
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Email</label>
+                                <input type="text" value={currentUser.email} readOnly className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white opacity-60 cursor-not-allowed" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="border border-red-900/30 bg-red-950/10 rounded-xl p-8">
+                        <h3 className="text-lg font-bold text-red-500 mb-2">Danger Zone</h3>
+                        <p className="text-slate-400 mb-6 text-sm">
+                            Permanently delete your account and remove your access to all organizations.
+                            This action cannot be undone.
+                        </p>
+                        <button
+                            onClick={() => setShowDeleteAccountModal(true)}
+                            className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-lg font-bold transition-colors"
+                        >
+                            Delete My Account
+                        </button>
                     </div>
                 </div>
             )}
@@ -469,6 +525,61 @@ export default function SettingsPage() {
                         <div className="flex justify-end gap-3">
                             <button onClick={() => setShowRemoveUserModal(false)} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
                             <button onClick={handleRemoveUser} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold">Remove User</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Account Modal (Self) */}
+            {showDeleteAccountModal && (
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-red-900/50 rounded-2xl p-8 w-full max-w-lg shadow-2xl shadow-red-900/20">
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="p-3 bg-red-900/20 rounded-full text-red-500">
+                                <AlertTriangle className="w-8 h-8" />
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-bold text-white">Delete Account?</h2>
+                                <p className="text-red-400 font-medium">This is a destructive action.</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 text-slate-300 mb-8">
+                            <p>You are about to permanently delete your account: <span className="font-bold text-white">{currentUser?.email}</span>.</p>
+                            <ul className="list-disc pl-5 space-y-1 text-sm opacity-80">
+                                <li>You will lose access to all managed organizations instantly.</li>
+                                <li>Your personal settings will be wiped.</li>
+                                <li>This cannot be undone.</li>
+                            </ul>
+                        </div>
+
+                        <div className="space-y-4">
+                            <label className="block text-sm text-slate-400">
+                                To confirm, type <span className="font-bold text-white select-all">DELETE</span> below:
+                            </label>
+                            <input
+                                type="text"
+                                value={deleteAccountConfirm}
+                                onChange={e => setDeleteAccountConfirm(e.target.value)}
+                                className="w-full bg-black border border-red-900/30 rounded-lg p-3 text-white focus:border-red-500 outline-none font-bold text-center tracking-widest uppercase"
+                                placeholder="DELETE"
+                            />
+                        </div>
+
+                        <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
+                            <button
+                                onClick={() => { setShowDeleteAccountModal(false); setDeleteAccountConfirm(''); }}
+                                className="px-6 py-3 text-slate-400 hover:text-white transition-colors font-medium"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleDeleteAccount}
+                                disabled={deleteAccountConfirm !== 'DELETE'}
+                                className="px-8 py-3 bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-lg shadow-red-900/20 transition-all flex items-center gap-2"
+                            >
+                                Permanently Delete Account
+                            </button>
                         </div>
                     </div>
                 </div>

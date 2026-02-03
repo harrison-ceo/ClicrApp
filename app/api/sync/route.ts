@@ -379,6 +379,26 @@ export async function POST(request: Request) {
             case 'ADD_USER': updatedData = addUser(payload as User); break;
             case 'UPDATE_USER': updatedData = updateUser(payload as User); break;
             case 'REMOVE_USER': updatedData = removeUser(payload.id); break;
+
+            case 'DELETE_ACCOUNT':
+                // Permanently delete user from Auth and Profile
+                if (payload.id) {
+                    try {
+                        // 1. Delete from Supabase Auth (This usually cascades to profile if set up, but let's be sure)
+                        await supabaseAdmin.auth.admin.deleteUser(payload.id);
+
+                        // 2. Explicitly delete profile just in case
+                        await supabaseAdmin.from('profiles').delete().eq('id', payload.id);
+
+                        // 3. Update local state
+                        updatedData = removeUser(payload.id);
+                    } catch (e) {
+                        console.error("Delete Account Failed", e);
+                        return NextResponse.json({ error: 'Deletion failed' }, { status: 500 });
+                    }
+                }
+                break;
+
             case 'ADD_CLICR': updatedData = addClicr(payload as Clicr); break;
             case 'UPDATE_CLICR':
                 const clicr = payload as Clicr;
