@@ -1,10 +1,9 @@
-
 'use server'
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-
 import { createClient } from '@/utils/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export async function login(formData: FormData) {
     const supabase = await createClient()
@@ -45,6 +44,17 @@ export async function signup(formData: FormData) {
     if (error) {
         console.error("[Auth] Signup Error:", error.message);
         redirect(`/login?error=${encodeURIComponent(error.message)}`);
+    }
+
+    if (data.user) {
+        // Create Profile immediately ensuring "Link" exists
+        // We use Admin client to bypass RLS/Trigger issues
+        await supabaseAdmin.from('profiles').upsert({
+            id: data.user.id,
+            email: email,
+            role: 'OWNER', // Default to Owner for new signups
+            // business_id is NULL initially, will be set in Onboarding
+        })
     }
 
     if (data.user && !data.session) {
