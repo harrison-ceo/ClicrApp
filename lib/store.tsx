@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useRe
 import { Business, Venue, Area, Clicr, CountEvent, User, IDScanEvent, BanRecord, BannedPerson, PatronBan, BanEnforcementEvent, BanAuditLog, Device, CapacityOverride, VenueAuditLog } from './types';
 import { createClient } from '@/utils/supabase/client';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { apiClient } from '@/lib/api/client';
 
 const INITIAL_USER: User = {
     id: 'usr_owner',
@@ -46,16 +47,11 @@ export type AppState = {
     };
 };
 
-// Helper for error logging
+// Helper for error logging (uses axios apiClient → Nest when NEXT_PUBLIC_API_URL is set)
 const logErrorToUsage = async (userId: string | undefined, message: string, context: string, payload?: any) => {
     try {
-        await fetch('/api/log-error', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(userId ? { 'x-user-id': userId } : {})
-            },
-            body: JSON.stringify({ message, context, payload })
+        await apiClient.post('/api/log-error', { message, context, payload }, {
+            headers: userId ? { 'x-user-id': userId } : {}
         });
     } catch (e) {
         console.error("Failed to log error to backend", e);
@@ -139,51 +135,24 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
 
         try {
-            // Get current Supabase Session
-            const supabase = createClient();
-            const { data: { user } } = await supabase.auth.getUser();
+            const { data } = await apiClient.get('/api/sync', { headers: { 'Cache-Control': 'no-store' } });
 
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json'
-            };
-
-            if (user) {
-                headers['x-user-id'] = user.id;
-                headers['x-user-email'] = user.email || '';
+            // Avoid overwriting optimistic state if a write started while we were fetching
+            if (isWritingRef.current) {
+                console.log("Skipping sync update due to active write (Pre-setState)");
+                return;
             }
 
-            const res = await fetch('/api/sync', {
-                cache: 'no-store',
-                headers
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-
-                // If we have a logged in user, ensure currentUser reflects that
-                // The API should handle mapping the x-user-id to the correct user in the DB
-                // but if it returned a different currentUser, we accept it.
-                // However, if we just logged in, we might need to force the state.currentUser to match
-                // We trust the API to return the "hydrated" user object for this ID.
-
-                // Avoid overwriting optimistic state if a write started while we were fetching
-                if (isWritingRef.current) {
-                    console.log("Skipping sync update due to active write (Pre-setState)");
-                    return;
-                }
-
-                setState(prev => ({
-                    ...prev,
-                    ...data,
-                    // Defensive: Ensure arrays are arrays
-                    venues: data.venues || [],
-                    areas: data.areas || [],
-                    clicrs: data.clicrs || [],
-                    events: data.events || [],
-                    scanEvents: data.scanEvents || [],
-                    isLoading: false
-                }));
-            }
+            setState(prev => ({
+                ...prev,
+                ...data,
+                venues: data.venues || [],
+                areas: data.areas || [],
+                clicrs: data.clicrs || [],
+                events: data.events || [],
+                scanEvents: data.scanEvents || [],
+                isLoading: false
+            }));
         } catch (error) {
             console.error("Failed to sync state", error);
             logErrorToUsage(state.currentUser?.id, (error as Error).message, 'refreshState');
@@ -280,14 +249,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }, [state.business?.id]);
 
     const authFetch = async (body: Record<string, unknown>) => {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (user) {
-            headers['x-user-id'] = user.id;
-            headers['x-user-email'] = user.email || '';
-        }
-        return fetch('/api/sync', { method: 'POST', headers, body: JSON.stringify(body) });
+        return apiClient.post('/api/sync', body);
     };
 
     // Simple lock to prevent polling from overwriting optimistic updates during active writes
@@ -335,29 +297,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
         // Send to API
         try {
-            // Use authFetch to ensure user context is passed (fixes filtering/identity issues)
             const res = await authFetch({ action: 'RECORD_EVENT', payload: newEvent });
-
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            } else {
-                const errData = await res.json().catch(() => ({}));
-                console.error("API Error in recordEvent", errData);
-                logErrorToUsage(state.currentUser.id, `Record Event Failed: ${errData.error}`, 'recordEvent', { data, errData });
-
-                // Revert optimistic update
-                setState(prev => ({
-                    ...prev,
-                    clicrs: prev.clicrs.map(c => c.id === data.clicr_id ? { ...c, current_count: c.current_count - data.delta } : c),
-                    areas: prev.areas.map(a => a.id === data.area_id ? { ...a, current_occupancy: Math.max(0, (a.current_occupancy || 0) - data.delta) } : a)
-                }));
-            }
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) {
-            console.error("Failed to record event - Network/Server Error", error);
-            logErrorToUsage(state.currentUser.id, `Record Event Network Error: ${(error as Error).message}`, 'recordEvent', { data });
-
-            // Revert optimistic update
+            const errData = (error as { response?: { data?: { error?: string } } })?.response?.data ?? {};
+            console.error("API/Network Error in recordEvent", errData);
+            logErrorToUsage(state.currentUser.id, (error as Error).message, 'recordEvent', { data, errData });
             setState(prev => ({
                 ...prev,
                 clicrs: prev.clicrs.map(c => c.id === data.clicr_id ? { ...c, current_count: c.current_count - data.delta } : c),
@@ -387,11 +332,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }));
 
         try {
-            const res = await authFetch({ action: 'RECORD_SCAN', payload: newScan }); // Use authFetch
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await authFetch({ action: 'RECORD_SCAN', payload: newScan });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) {
             console.error("Failed to record scan", error);
         } finally {
@@ -432,17 +374,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setState(optimisticState);
 
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'RESET_COUNTS', venue_id: venueId, area_id: areaId }),
-                cache: 'no-store'
-            });
-
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'RESET_COUNTS', venue_id: venueId, area_id: areaId });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) {
             console.error("Failed to reset counts", error);
         } finally {
@@ -461,15 +394,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }));
 
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'ADD_USER', payload: user })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'ADD_USER', payload: user });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) {
             console.error("Failed to add user", error);
         }
@@ -482,15 +408,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }));
 
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'UPDATE_USER', payload: user })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'UPDATE_USER', payload: user });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to update user", error); }
     };
 
@@ -501,15 +420,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }));
 
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'REMOVE_USER', payload: { id: userId } })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'REMOVE_USER', payload: { id: userId } });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to remove user", error); }
     };
 
@@ -519,25 +431,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setState(prev => ({ ...prev, venues: [...prev.venues, venue] }));
         try {
             const res = await authFetch({ action: 'ADD_VENUE', payload: venue });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to add venue", error); }
     };
 
     const updateVenue = async (venue: Venue) => {
         setState(prev => ({ ...prev, venues: prev.venues.map(v => v.id === venue.id ? venue : v) }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'UPDATE_VENUE', payload: venue })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'UPDATE_VENUE', payload: venue });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to update venue", error); }
     };
 
@@ -545,10 +447,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setState(prev => ({ ...prev, areas: [...prev.areas, area] }));
         try {
             const res = await authFetch({ action: 'ADD_AREA', payload: area });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to add area", error); }
     };
 
@@ -558,21 +457,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setState(prev => ({ ...prev, areas: prev.areas.map(a => a.id === area.id ? area : a) }));
 
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'UPDATE_AREA', payload: area })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-                return true;
-            } else {
-                // Revert
-                console.error("Update Area Failed API");
-                if (originalArea) setState(prev => ({ ...prev, areas: prev.areas.map(a => a.id === area.id ? originalArea : a) }));
-                return false;
-            }
+            const res = await apiClient.post('/api/sync', { action: 'UPDATE_AREA', payload: area });
+            setState(prev => ({ ...prev, ...res.data }));
+            return true;
         } catch (error) {
             console.error("Failed to update area", error);
             if (originalArea) setState(prev => ({ ...prev, areas: prev.areas.map(a => a.id === area.id ? originalArea : a) }));
@@ -592,28 +479,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
         try {
             const res = await authFetch({ action: 'DELETE_CLICR', payload: { id: clicrId } });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-                return { success: true };
-            } else {
-                const errData = await res.json().catch(() => ({ error: 'Unknown JSON parsing error' }));
-                console.error("Delete Clicr Failed API", errData);
-                setLastError(`Delete Failed: ${errData.error || res.statusText}`);
-                logErrorToUsage(state.currentUser.id, `Delete Clicr Failed: ${errData.error}`, 'deleteClicr', { clicrId });
-
-                // Revert
-                if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
-
-                return { success: false, error: errData.error || res.statusText };
-            }
+            setState(prev => ({ ...prev, ...res.data }));
+            return { success: true };
         } catch (e) {
-            console.error("Delete Clicr Network Error", e);
-            setLastError(`Delete Failed: ${(e as Error).message}`);
-            logErrorToUsage(state.currentUser.id, `Delete Clicr Network Error: ${(e as Error).message}`, 'deleteClicr', { clicrId });
-
+            const errData = (e as { response?: { data?: { error?: string }; statusText?: string } })?.response?.data ?? {};
+            console.error("Delete Clicr Failed", errData);
+            setLastError(`Delete Failed: ${errData.error ?? (e as Error).message}`);
+            logErrorToUsage(state.currentUser.id, (e as Error).message, 'deleteClicr', { clicrId });
             if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
-            return { success: false, error: (e as Error).message };
+            return { success: false, error: errData.error ?? (e as Error).message };
         }
     };
 
@@ -624,74 +498,42 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
         try {
             const res = await authFetch({ action: 'ADD_CLICR', payload: clicr });
-            if (res.ok) {
-                const updatedDB = await res.json();
-
-                // ROBUSTNESS: Ensure new clicr is present
-                const exists = updatedDB.clicrs && updatedDB.clicrs.find((c: Clicr) => c.id === clicr.id);
-                if (!exists) {
-                    updatedDB.clicrs = [...(updatedDB.clicrs || []), clicr];
-                }
-
-                setState(prev => ({ ...prev, ...updatedDB }));
-                return { success: true };
-            } else {
-                const errData = await res.json().catch(() => ({}));
-                console.error("Failed to add clicr API error", errData);
-                // Revert
-                setState(prev => ({ ...prev, clicrs: prev.clicrs.filter(c => c.id !== tempId) }));
-                return { success: false, error: errData.error || res.statusText };
+            const updatedDB = res.data as { clicrs?: Clicr[] };
+            const exists = updatedDB.clicrs?.find((c: Clicr) => c.id === clicr.id);
+            if (!exists) {
+                updatedDB.clicrs = [...(updatedDB.clicrs || []), clicr];
             }
+            setState(prev => ({ ...prev, ...res.data }));
+            return { success: true };
         } catch (error) {
-            console.error("Failed to add clicr network error", error);
-            // Revert
+            const errData = (error as { response?: { data?: { error?: string } } })?.response?.data ?? {};
+            console.error("Failed to add clicr", errData);
             setState(prev => ({ ...prev, clicrs: prev.clicrs.filter(c => c.id !== tempId) }));
-            return { success: false, error: (error as Error).message };
+            return { success: false, error: errData.error ?? (error as Error).message };
         }
     };
 
     const updateClicr = async (clicr: Clicr) => {
         setState(prev => ({ ...prev, clicrs: prev.clicrs.map(c => c.id === clicr.id ? clicr : c) }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'UPDATE_CLICR', payload: clicr })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'UPDATE_CLICR', payload: clicr });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to update clicr", error); }
     };
 
     const addDevice = async (device: Device) => {
         setState(prev => ({ ...prev, devices: [...prev.devices, device] }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'ADD_DEVICE', payload: device })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'ADD_DEVICE', payload: device });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to add device", error); }
     };
 
     const updateDevice = async (device: Device) => {
         setState(prev => ({ ...prev, devices: prev.devices.map(d => d.id === device.id ? device : d) }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'UPDATE_DEVICE', payload: device })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'UPDATE_DEVICE', payload: device });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to update device", error); }
     };
 
@@ -702,22 +544,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
         try {
             const res = await authFetch({ action: 'DELETE_DEVICE', payload: { id: deviceId } });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-                return { success: true };
-            } else {
-                const errData = await res.json().catch(() => ({}));
-                console.error("Delete Device Failed", errData);
-                setLastError(`Delete Device Failed: ${errData.error || res.statusText}`);
-                if (originalDevice) setState(prev => ({ ...prev, devices: [...prev.devices, originalDevice] }));
-                return { success: false, error: errData.error };
-            }
+            setState(prev => ({ ...prev, ...res.data }));
+            return { success: true };
         } catch (error) {
-            console.error("Failed to delete device", error);
-            setLastError(`Delete Device Failed: ${(error as Error).message}`);
+            const errData = (error as { response?: { data?: { error?: string } } })?.response?.data ?? {};
+            console.error("Delete Device Failed", errData);
+            setLastError(`Delete Device Failed: ${errData.error ?? (error as Error).message}`);
             if (originalDevice) setState(prev => ({ ...prev, devices: [...prev.devices, originalDevice] }));
-            return { success: false, error: (error as Error).message };
+            return { success: false, error: errData.error ?? (error as Error).message };
         }
     };
 
@@ -726,30 +560,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const addCapacityOverride = async (override: CapacityOverride) => {
         setState(prev => ({ ...prev, capacityOverrides: [...prev.capacityOverrides, override] }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'ADD_CAPACITY_OVERRIDE', payload: override })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'ADD_CAPACITY_OVERRIDE', payload: override });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to add override", error); }
     };
 
     const addVenueAuditLog = async (log: VenueAuditLog) => {
         setState(prev => ({ ...prev, venueAuditLogs: [...prev.venueAuditLogs, log] }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'ADD_VENUE_AUDIT_LOG', payload: log })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'ADD_VENUE_AUDIT_LOG', payload: log });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to add audit log", error); }
     };
 
@@ -761,15 +581,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             bans: [...(prev.bans || []), ban]
         }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'CREATE_BAN', payload: ban })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'CREATE_BAN', payload: ban });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to add ban", error); }
     };
 
@@ -779,15 +592,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             bans: (prev.bans || []).map(b => b.id === banId ? { ...b, status: 'REVOKED', revoked_by_user_id: revokedByUserId, revoked_at: Date.now(), revoked_reason: reason } : b)
         }));
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'REVOKE_BAN', payload: { banId, revokedByUserId, reason } })
-            });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'REVOKE_BAN', payload: { banId, revokedByUserId, reason } });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to revoke ban", error); }
     };
 
@@ -801,16 +607,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }));
 
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'CREATE_PATRON_BAN', payload: { person, ban, log } })
-            });
-
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'CREATE_PATRON_BAN', payload: { person, ban, log } });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) {
             console.error("Failed to create patron ban", error);
         }
@@ -825,16 +623,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }));
 
         try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'UPDATE_PATRON_BAN', payload: { ban, log } })
-            });
-
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            const res = await apiClient.post('/api/sync', { action: 'UPDATE_PATRON_BAN', payload: { ban, log } });
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) {
             console.error("Failed to update patron ban", error);
         }
@@ -848,12 +638,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }));
 
         try {
-            await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'RECORD_BAN_ENFORCEMENT', payload: event })
-            });
-            // We don't strictly need to await the full DB sync here, optimizing for speed
+            await apiClient.post('/api/sync', { action: 'RECORD_BAN_ENFORCEMENT', payload: event });
         } catch (error) {
             console.error("Failed to record ban enforcement", error);
         }
@@ -870,10 +655,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
         try {
             const res = await authFetch({ action: 'UPDATE_BUSINESS', payload: updates });
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
+            setState(prev => ({ ...prev, ...res.data }));
         } catch (error) { console.error("Failed to update business", error); }
     };
 

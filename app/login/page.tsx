@@ -11,7 +11,6 @@ export default async function LoginPage({ searchParams }: Props) {
     const params = await searchParams;
     const error = params.error as string;
     const message = params.message as string;
-    // Hardcode Back button to Marketing Website as requested
     const returnTo = 'https://clicr.co';
 
     return (

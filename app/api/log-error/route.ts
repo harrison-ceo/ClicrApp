@@ -8,7 +8,7 @@ export async function POST(request: Request) {
 
     try {
         await supabaseAdmin.from('app_errors').insert({
-            user_id: userId || null,
+            user_id: userId ?? null,
             error_message: message,
             context: context || 'client_reported',
             payload: payload

@@ -1,6 +1,7 @@
 "use client";
 import React, { useState } from 'react';
 import { useApp } from '@/lib/store';
+import { apiClient } from '@/lib/api/client';
 import { Building2, Save, Users, UserPlus, Shield, Mail, Phone, Ban, History, AlertTriangle } from 'lucide-react';
 import { Role, User, BanRecord, BanScope } from '@/lib/types';
 import Link from 'next/link';
@@ -16,10 +17,8 @@ export default function SettingsPage() {
 
     const handleDeleteAccount = async () => {
         try {
-            await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || '' },
-                body: JSON.stringify({ action: 'DELETE_ACCOUNT', payload: { id: currentUser?.id } })
+            await apiClient.post('/api/sync', { action: 'DELETE_ACCOUNT', payload: { id: currentUser?.id } }, {
+                headers: currentUser?.id ? { 'x-user-id': currentUser.id } : {}
             });
             window.location.href = '/login';
         } catch (e) {
@@ -48,10 +47,8 @@ export default function SettingsPage() {
         // API call to remove user would go here. 
         // For now we rely on the store's action if exists, or just calling the API directly
         try {
-            await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || '' },
-                body: JSON.stringify({ action: 'REMOVE_USER', payload: { id: userToRemove.id } })
+            await apiClient.post('/api/sync', { action: 'REMOVE_USER', payload: { id: userToRemove.id } }, {
+                headers: currentUser?.id ? { 'x-user-id': currentUser.id } : {}
             });
             // Force reload or optimistically update? 
             // The store might not update automatically if we don't use the hook action.

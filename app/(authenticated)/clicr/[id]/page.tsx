@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
+import { apiClient } from '@/lib/api/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Settings2, Plus, Minus, ScanFace, CheckCircle2, XCircle, ArrowUpCircle, ArrowDownCircle, Trash2, Layout, Link2, Unlink, ChevronDown, Check, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -291,12 +292,7 @@ export default function ClicrCounterPage() {
             setScannerInput('');
 
             // 3. Force API call just in case store didn't strictly sync yet
-            await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'RESET_COUNTS', venue_id: venueId || 'ven_001' }), // Explicit venue_id
-                cache: 'no-store'
-            });
+            await apiClient.post('/api/sync', { action: 'RESET_COUNTS', venue_id: venueId || 'ven_001' });
 
         } catch (e) {
             console.error("Reset failed", e);
