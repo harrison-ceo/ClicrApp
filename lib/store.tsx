@@ -365,6 +365,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                     lastWrites: [{ type: 'API_SUCCESS', payload: data }, ...prev.debug.lastWrites].slice(0, 5)
                 }
             }));
+
+            // Refresh Traffic Stats instantly
+            refreshTrafficStats();
         }
 
         catch (error) {
