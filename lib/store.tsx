@@ -296,10 +296,24 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             if (res.ok) {
                 const updatedDB = await res.json();
                 setState(prev => ({ ...prev, ...updatedDB }));
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                console.error("API Error in recordEvent", errData);
+                // Revert optimistic update
+                setState(prev => ({
+                    ...prev,
+                    clicrs: prev.clicrs.map(c => c.id === data.clicr_id ? { ...c, current_count: c.current_count - data.delta } : c),
+                    areas: prev.areas.map(a => a.id === data.area_id ? { ...a, current_occupancy: Math.max(0, (a.current_occupancy || 0) - data.delta) } : a)
+                }));
             }
         } catch (error) {
-            console.error("Failed to record event", error);
-            // Revert?
+            console.error("Failed to record event - Network/Server Error", error);
+            // Revert optimistic update
+            setState(prev => ({
+                ...prev,
+                clicrs: prev.clicrs.map(c => c.id === data.clicr_id ? { ...c, current_count: c.current_count - data.delta } : c),
+                areas: prev.areas.map(a => a.id === data.area_id ? { ...a, current_occupancy: Math.max(0, (a.current_occupancy || 0) - data.delta) } : a)
+            }));
         } finally {
             // Delay unlocking to allow server consistency to settle
             setTimeout(() => {
