@@ -36,12 +36,13 @@ async function hydrateData(data: DBData): Promise<DBData> {
                 city: 'City', // Fallback as schema might differ slightly
                 state: 'State',
                 zip: '00000',
-                capacity: v.total_capacity,
+                capacity: v.total_capacity, // Keep for legacy if needed, but correct field is below
+                default_capacity_total: v.total_capacity,
                 timezone: v.timezone || 'UTC',
 
                 // Required fields by Type
-                status: 'ACTIVE',
-                capacity_enforcement_mode: 'WARN_ONLY',
+                status: v.status || 'ACTIVE',
+                capacity_enforcement_mode: v.capacity_enforcement_mode || 'WARN_ONLY',
                 created_at: v.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             }));

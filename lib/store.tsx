@@ -296,78 +296,91 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const recordEvent = async (data: Omit<CountEvent, 'id' | 'timestamp' | 'user_id' | 'business_id'>) => {
         if (!state.business) return;
 
-        isWritingRef.current = true; // Lock polling
+        // Prevent concurrent writes if strict strictness is needed, but for "clicker" speed we often want fire-and-forget.
+        // However, requirements say "atomic", "no race conditions".
+        isWritingRef.current = true;
 
-        const newEvent: CountEvent = {
-            ...data,
-            id: Math.random().toString(36).substring(7),
-            timestamp: Date.now(),
-            user_id: state.currentUser.id,
-            business_id: state.business.id,
-        };
 
-        // Optimistic update
+        const businessId = state.business?.id;
+        const userId = state.currentUser?.id;
+
+        if (!businessId || !userId) {
+            console.error("Missing context for recordEvent");
+            return;
+        }
+
+        // Optimistic Update (UI responsiveness)
         setState(prev => {
-            const updatedClicrs = prev.clicrs.map(c => {
-                if (c.id === data.clicr_id) {
-                    return { ...c, current_count: c.current_count + data.delta };
-                }
-                return c;
-            });
             return {
                 ...prev,
-                clicrs: updatedClicrs,
-                // OPTIMISTICALLY UPDATE AREA OCCUPANCY
+                clicrs: prev.clicrs.map(c => {
+                    if (c.id === data.clicr_id) return { ...c, current_count: c.current_count + data.delta };
+                    return c;
+                }),
                 areas: prev.areas.map(a => {
                     if (a.id === data.area_id) {
-                        // Fallback to summing if current_occupancy is missing in cache (migration edge case)
-                        const current = a.current_occupancy ?? prev.clicrs.filter(c => c.area_id === a.id).reduce((sum, c) => sum + c.current_count, 0);
-                        return {
-                            ...a,
-                            current_occupancy: Math.max(0, current + data.delta)
-                        };
+                        const current = a.current_occupancy || 0;
+                        // Prevent negative optimistic UI
+                        return { ...a, current_occupancy: Math.max(0, current + data.delta) };
                     }
                     return a;
-                }),
-                events: [newEvent, ...prev.events] // Prepend locally
+                })
             };
         });
 
-        // Send to API
         try {
-            // Use authFetch to ensure user context is passed (fixes filtering/identity issues)
-            const res = await authFetch({ action: 'RECORD_EVENT', payload: newEvent });
+            const supabase = createClient();
 
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            } else {
-                const errData = await res.json().catch(() => ({}));
-                console.error("API Error in recordEvent", errData);
-                logErrorToUsage(state.currentUser.id, `Record Event Failed: ${errData.error}`, 'recordEvent', { data, errData });
+            // Call Atomic RPC
+            const { data: result, error } = await supabase.rpc('process_occupancy_event', {
+                p_business_id: businessId,
+                p_venue_id: data.venue_id,
+                p_area_id: data.area_id,
+                p_device_id: data.clicr_id,
+                p_user_id: userId,
+                p_delta: data.delta,
+                p_flow_type: data.flow_type,
+                p_event_type: data.event_type,
+                p_session_id: data.clicr_id
+            });
 
-                // Revert optimistic update
+            if (error) throw error;
+
+            // Success - reconcile state with TRUTH from/server if needed
+            // The Realtime subscription will likely catch the update shortly.
+            // But we can also manually update the area occupancy from the result if we want immediate consistency.
+            if (result && typeof result.current_occupancy === 'number') {
                 setState(prev => ({
                     ...prev,
-                    clicrs: prev.clicrs.map(c => c.id === data.clicr_id ? { ...c, current_count: c.current_count - data.delta } : c),
-                    areas: prev.areas.map(a => a.id === data.area_id ? { ...a, current_occupancy: Math.max(0, (a.current_occupancy || 0) - data.delta) } : a)
+                    debug: {
+                        ...prev.debug,
+                        lastWrites: [{ type: 'RPC_SUCCESS', payload: data, result }, ...prev.debug.lastWrites].slice(0, 5)
+                    },
+                    areas: prev.areas.map(a =>
+                        a.id === data.area_id ? { ...a, current_occupancy: result.current_occupancy } : a
+                    )
                 }));
             }
-        } catch (error) {
-            console.error("Failed to record event - Network/Server Error", error);
-            logErrorToUsage(state.currentUser.id, `Record Event Network Error: ${(error as Error).message}`, 'recordEvent', { data });
 
-            // Revert optimistic update
+        } catch (error) {
+            console.error("RPC Failed", error);
+            logErrorToUsage(userId, `RPC Error: ${(error as Error).message}`, 'process_occupancy_event', { data });
+
+            // Revert Optimistic Update
             setState(prev => ({
                 ...prev,
                 clicrs: prev.clicrs.map(c => c.id === data.clicr_id ? { ...c, current_count: c.current_count - data.delta } : c),
-                areas: prev.areas.map(a => a.id === data.area_id ? { ...a, current_occupancy: Math.max(0, (a.current_occupancy || 0) - data.delta) } : a)
+                areas: prev.areas.map(a => a.id === data.area_id ? { ...a, current_occupancy: Math.max(0, (a.current_occupancy || 0) - data.delta) } : a),
+                debug: {
+                    ...prev.debug,
+                    lastWrites: [{ type: 'RPC_FAIL', payload: data, error }, ...prev.debug.lastWrites].slice(0, 5)
+                }
             }));
+
+            // Ideally notify user visibly
+            setLastError("Failed to update count. Please retry.");
         } finally {
-            // Delay unlocking to allow server consistency to settle
-            setTimeout(() => {
-                isWritingRef.current = false;
-            }, 500);
+            setTimeout(() => { isWritingRef.current = false; }, 100);
         }
     };
 

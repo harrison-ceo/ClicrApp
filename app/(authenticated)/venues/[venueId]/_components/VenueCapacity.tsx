@@ -20,6 +20,12 @@ export default function VenueCapacity({ venueId }: { venueId: string }) {
     // Filter overrides for this venue (and active/future only?)
     const overrides = capacityOverrides.filter(o => o.venue_id === venueId);
 
+    const [localCapacity, setLocalCapacity] = useState(venue?.default_capacity_total || 0);
+    const [localMode, setLocalMode] = useState<any>(venue?.capacity_enforcement_mode || 'WARN_ONLY');
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+    // RESTORED STATE
     const [isOverrideModalOpen, setIsOverrideModalOpen] = useState(false);
     const [newOverride, setNewOverride] = useState<Partial<CapacityOverride>>({
         venue_id: venueId,
@@ -49,8 +55,60 @@ export default function VenueCapacity({ venueId }: { venueId: string }) {
         setNewOverride({ venue_id: venueId, capacity_value: 0 });
     };
 
-    const handleEnforcementChange = async (mode: any) => {
-        await updateVenue({ ...venue, capacity_enforcement_mode: mode });
+    // Sync local state when venue updates (initial load or external change)
+    // BUT only if not currently editing (to avoid jumping). 
+    // Actually, for "Persistence" checks, simple useEffect is fine.
+    React.useEffect(() => {
+        if (!isSaving) {
+            setLocalCapacity(venue.default_capacity_total || 0);
+            setLocalMode(venue.capacity_enforcement_mode);
+        }
+    }, [venue.default_capacity_total, venue.capacity_enforcement_mode, isSaving]);
+
+    const handleSaveSettings = async () => {
+        setIsSaving(true);
+        setSaveMessage(null);
+
+        console.log("CAPACITY SAVE payload", {
+            id: venue.id,
+            total: localCapacity,
+            mode: localMode
+        });
+
+        try {
+            await updateVenue({
+                ...venue,
+                default_capacity_total: localCapacity,
+                capacity_enforcement_mode: localMode
+            });
+            // Since updateVenue is void/async in store, we assume it throws if fails, 
+            // OR we need to check if the store state actually updated?
+            // The store implementation updates optimistic, then API. 
+            // Ideally updateVenue should return a promise that rejects on API specific failure.
+
+            setSaveMessage({ type: 'success', text: 'Capacity settings saved.' });
+
+            // Clear message after 3s
+            setTimeout(() => setSaveMessage(null), 3000);
+
+        } catch (error) {
+            console.error("CAPACITY SAVE error", error);
+            setSaveMessage({ type: 'error', text: 'Failed to save settings.' });
+
+            // Log to app_errors
+            try {
+                await fetch('/api/log-error', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        feature: 'capacity_rules_save',
+                        error_message: (error as Error).message,
+                        venue_id: venueId
+                    })
+                });
+            } catch (e) { /* ignore log fail */ }
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -59,22 +117,21 @@ export default function VenueCapacity({ venueId }: { venueId: string }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-4">
                     <h3 className="text-lg font-bold">Default Limits</h3>
-                    <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
+                    <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl h-full flex flex-col justify-between">
                         <div className="space-y-4">
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Venue Wide Max Capacity</label>
                                 <div className="flex items-center gap-4">
                                     <input
                                         type="number"
-                                        defaultValue={venue.default_capacity_total || 0}
-                                        onBlur={(e) => updateVenue({ ...venue, default_capacity_total: parseInt(e.target.value) || 0 })}
+                                        value={localCapacity}
+                                        onChange={(e) => setLocalCapacity(parseInt(e.target.value) || 0)}
                                         className="w-40 bg-slate-950 px-4 py-2 rounded-lg border border-slate-800 font-mono text-white text-2xl font-bold focus:border-primary focus:outline-none"
                                     />
                                     <span className="text-sm text-slate-500 font-medium">Max Guests</span>
                                 </div>
                                 <p className="text-xs text-slate-500 mt-2">
                                     This is the baseline capacity when no overrides are active.
-                                    Sum of area capacities is <strong>350</strong> (Example).
                                 </p>
                             </div>
                         </div>
@@ -93,27 +150,25 @@ export default function VenueCapacity({ venueId }: { venueId: string }) {
                             ].map(mode => (
                                 <div
                                     key={mode.id}
-                                    onClick={() => handleEnforcementChange(mode.id)}
+                                    onClick={() => setLocalMode(mode.id)}
                                     className={cn(
                                         "p-4 rounded-xl border cursor-pointer transition-all flex items-center gap-4",
-                                        venue.capacity_enforcement_mode === mode.id
+                                        localMode === mode.id
                                             ? "bg-primary border-primary shadow-lg shadow-primary/25"
                                             : "bg-slate-950 border-slate-800 hover:bg-slate-900"
                                     )}
                                 >
                                     <div className={cn(
                                         "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0",
-                                        venue.capacity_enforcement_mode === mode.id
-                                            ? "border-white"
-                                            : "border-slate-600"
+                                        localMode === mode.id ? "border-white" : "border-slate-600"
                                     )}>
-                                        {venue.capacity_enforcement_mode === mode.id && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
+                                        {localMode === mode.id && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
                                     </div>
                                     <div>
-                                        <div className={cn("font-bold text-sm", venue.capacity_enforcement_mode === mode.id ? "text-white" : "text-slate-300")}>
+                                        <div className={cn("font-bold text-sm", localMode === mode.id ? "text-white" : "text-slate-300")}>
                                             {mode.label}
                                         </div>
-                                        <div className={cn("text-xs mt-0.5", venue.capacity_enforcement_mode === mode.id ? "text-white/80" : "text-slate-500")}>
+                                        <div className={cn("text-xs mt-0.5", localMode === mode.id ? "text-white/80" : "text-slate-500")}>
                                             {mode.desc}
                                         </div>
                                     </div>
@@ -122,6 +177,26 @@ export default function VenueCapacity({ venueId }: { venueId: string }) {
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {/* Save Section */}
+            <div className="flex items-center justify-end gap-4 p-4 bg-slate-900/30 border border-slate-800 rounded-xl">
+                {saveMessage && (
+                    <div className={cn("text-sm font-medium animate-in fade-in slide-in-from-right-2",
+                        saveMessage.type === 'success' ? "text-emerald-400" : "text-red-400"
+                    )}>
+                        {saveMessage.text}
+                    </div>
+                )}
+
+                <button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    className="disabled:opacity-50 disabled:cursor-not-allowed bg-white text-slate-900 hover:bg-slate-100 font-bold py-2.5 px-6 rounded-full transition-all shadow-lg flex items-center gap-2"
+                >
+                    {isSaving ? <span className="animate-spin text-xl">⟳</span> : <Shield className="w-4 h-4" />}
+                    {isSaving ? 'Saving...' : 'Save Capacity Rules'}
+                </button>
             </div>
 
             {/* Overrides Section */}

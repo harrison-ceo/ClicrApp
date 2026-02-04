@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Settings2, Plus, Minus, ScanFace, CheckCircle2, XCircle, ArrowUpCircle, ArrowDownCircle, Trash2, Layout, Link2, Unlink, ChevronDown, Check, Zap } from 'lucide-react';
+import { ArrowLeft, Settings2, Plus, Minus, ScanFace, CheckCircle2, XCircle, ArrowUpCircle, ArrowDownCircle, Trash2, Layout, Link2, Unlink, ChevronDown, Check, Zap, Bug } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IDScanEvent } from '@/lib/types';
 import { parseAAMVA } from '@/lib/aamva';
@@ -31,7 +31,7 @@ const generateMockID = () => {
 export default function ClicrCounterPage() {
     const { id } = useParams();
     const router = useRouter();
-    const { clicrs, areas, events, recordEvent, recordScan, resetCounts, isLoading, patrons, patronBans, updateClicr } = useApp();
+    const { clicrs, areas, events, venues, recordEvent, recordScan, resetCounts, isLoading, patrons, patronBans, updateClicr, debug, currentUser } = useApp();
     const clicr = (clicrs || []).find((c) => c.id === id);
     const [showCameraScanner, setShowCameraScanner] = useState(false);
 
@@ -65,22 +65,25 @@ export default function ClicrCounterPage() {
         secondaryLabel: 'Secondary'
     });
 
-    // Calculate total area occupancy for live count
-    const areaClicrs = (clicrs || []).filter(c => c.area_id === clicr?.area_id);
-    const totalAreaCount = areaClicrs.reduce((acc, c) => acc + c.current_count, 0);
-
-    // Calculate aggregated stats for the ENTIRE VENUE (as requested)
-    // 1. Find the venue ID for this clicr
+    // Calculate total area occupancy from SNAPSHOT (Source of Truth)
     const currentArea = (areas || []).find(a => a.id === clicr?.area_id);
+    const totalAreaCount = currentArea?.current_occupancy || 0;
+
+    // Calculate aggregated stats for the ENTIRE VENUE from SNAPSHOTS
     const venueId = currentArea?.venue_id;
 
-    // 2. Filter all events for this venue to get global totals
-    const venueEvents = (events || []).filter(e => e.venue_id === venueId);
+    // Venue Occupancy = Sum of all areas in venue (Realtime)
+    const venueAreas = (areas || []).filter(a => a.venue_id === venueId);
+    const currentVenueOccupancy = venueAreas.reduce((acc, a) => acc + (a.current_occupancy || 0), 0);
+    const venue = (venues || []).find(v => v.id === venueId);
 
-    // FIX: Total In should sum the actual deltas (allowing negatives to subtract), not Math.abs
+    // Keep event-based stats for "Session" view if needed, but rely on snapshots for enforcement
+    const venueEvents = (events || []).filter(e => e.venue_id === venueId);
     const globalIn = venueEvents.reduce((acc, e) => e.flow_type === 'IN' ? acc + e.delta : acc, 0);
-    // FIX: Total Out sums the magnitude of OUT events (which are negative)
     const globalOut = venueEvents.reduce((acc, e) => e.flow_type === 'OUT' ? acc + Math.abs(e.delta) : acc, 0);
+
+    // DEBUG PANEL STATE
+    const [showDebug, setShowDebug] = useState(false);
 
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [bulkValue, setBulkValue] = useState(0);
@@ -212,10 +215,34 @@ export default function ClicrCounterPage() {
 
     // ...
 
-    if (isLoading) return <div className="p-8 text-white">Connecting...</div>;
-    if (!clicr) return <div className="p-8 text-white">Clicr not found</div>;
+    // if (isLoading) return <div className="p-8 text-white">Connecting...</div>;
+    // if (!clicr) return <div className="p-8 text-white">Clicr not found</div>;
 
     const handleGenderTap = (gender: 'M' | 'F', delta: number) => {
+        // ENFORCEMENT CHECK
+        if (delta > 0 && venue) {
+            const maxCap = venue.default_capacity_total || 0;
+            const mode = venue.capacity_enforcement_mode || 'WARN_ONLY';
+
+            if (maxCap > 0 && currentVenueOccupancy >= maxCap) {
+                if (mode === 'HARD_STOP') {
+                    alert("CAPACITY REACHED: Entry Blocked (Hard Stop Active)");
+                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                    return; // BLOCK
+                }
+                if (mode === 'MANAGER_OVERRIDE' || mode === 'HARD_BLOCK' as any) { // Handle variations
+                    // Require confirmation
+                    if (!window.confirm("WARNING: Capacity Reached. Authorize Override?")) {
+                        return; // BLOCK if not confirmed
+                    }
+                }
+                if (mode === 'WARN_ONLY') {
+                    if (navigator.vibrate) navigator.vibrate([50, 50, 50, 50]);
+                    // Optional: Toast warning
+                }
+            }
+        }
+
         if (navigator.vibrate) navigator.vibrate(50);
 
         // If we have a pending classification, clearing it is the priority
@@ -358,6 +385,23 @@ export default function ClicrCounterPage() {
                 if (navigator.vibrate) navigator.vibrate([30, 50, 30]); // Distinct vibrate
             } else {
                 // NORMAL MODE: Auto-count
+
+                // Enforce Capacity for Scans
+                if (venue) {
+                    const maxCap = venue.default_capacity_total || 0;
+                    const mode = venue.capacity_enforcement_mode || 'WARN_ONLY';
+                    if (maxCap > 0 && currentVenueOccupancy >= maxCap) {
+                        if (mode === 'HARD_STOP') {
+                            alert("CAPACITY REACHED: Entry Blocked");
+                            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                            return;
+                        }
+                        if ((mode === 'MANAGER_OVERRIDE' || mode === 'HARD_BLOCK' as any) && !window.confirm("Capacity Reached. Override?")) {
+                            return;
+                        }
+                    }
+                }
+
                 recordEvent({
                     venue_id: venueId || 'ven_001',
                     area_id: clicr.area_id,
@@ -501,6 +545,9 @@ export default function ClicrCounterPage() {
         return () => clearTimeout(timeout);
     }, [scannerInput]);
 
+    if (isLoading) return <div className="p-8 text-white">Connecting...</div>;
+    if (!clicr) return <div className="p-8 text-white">Clicr not found</div>;
+
     return (
         <div className="flex flex-col h-[100vh] bg-black relative overflow-hidden" onClick={() => inputRef.current?.focus()}>
 
@@ -533,7 +580,15 @@ export default function ClicrCounterPage() {
                 </div>
 
                 {/* Right side spacer to keep title centered */}
-                <div className="w-[72px]"></div>
+                {/* Right side spacer - repurposed for Debug */}
+                <div className="w-[72px] flex justify-end">
+                    <button
+                        onClick={() => setShowDebug(!showDebug)}
+                        className={cn("p-2 rounded-full transition-colors", showDebug ? "bg-indigo-500/20 text-indigo-400" : "hover:bg-slate-800 text-slate-600 hover:text-white")}
+                    >
+                        <Bug className="w-5 h-5" />
+                    </button>
+                </div>
             </div>
 
             {/* Main Content - SINGLE VIEW */}
@@ -1096,7 +1151,81 @@ function SplitCounterPart({
                 </motion.button>
             </div>
 
-            {/* Manual correction or extra controls could go here if needed, but keeping it simple as requested */}
+            {/* DEBUG PANEL - OWNER ONLY */}
+            <AnimatePresence>
+                {showDebug && (
+                    <motion.div
+                        initial={{ x: '100%' }}
+                        animate={{ x: 0 }}
+                        exit={{ x: '100%' }}
+                        className="fixed inset-y-0 right-0 w-80 bg-slate-950 border-l border-slate-800 p-6 z-[200] overflow-y-auto shadow-2xl"
+                    >
+                        <h3 className="text-white font-bold mb-6 flex items-center gap-2">
+                            <Bug className="w-5 h-5 text-indigo-400" />
+                            Sync Debugger
+                        </h3>
+
+                        <div className="space-y-6">
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Context</label>
+                                <div className="text-xs text-slate-300 font-mono bg-slate-900 p-2 rounded border border-slate-800 break-all">
+                                    UID: {currentUser?.id}<br />
+                                    BIZ: {clicr?.business_id}<br />
+                                    VEN: {venueId}<br />
+                                    AREA: {clicr?.area_id}
+                                </div>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Snapshot Truth</label>
+                                <div className="p-4 bg-emerald-950/20 border border-emerald-500/30 rounded-lg text-emerald-400 font-mono text-2xl font-bold flex items-center justify-between">
+                                    {currentArea ? currentArea.current_occupancy : 'N/A'}
+                                    <span className="text-[10px] text-emerald-600 uppercase">Server State</span>
+                                </div>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Realtime Status</label>
+                                <div className="flex items-center gap-2">
+                                    <div className={cn("w-2 h-2 rounded-full", debug?.realtimeStatus === 'SUBSCRIBED' ? "bg-emerald-500 animate-pulse" : "bg-amber-500")} />
+                                    <span className="text-sm text-white font-mono">{debug?.realtimeStatus || 'UNKNOWN'}</span>
+                                </div>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Last 5 Writes</label>
+                                <div className="space-y-2">
+                                    {debug?.lastWrites?.map((w: any, i: number) => (
+                                        <div key={i} className="bg-slate-900 p-2 rounded text-[10px] font-mono border border-slate-800">
+                                            <div className={cn("font-bold mb-1", w.type === 'RPC_SUCCESS' ? "text-emerald-400" : "text-red-400")}>
+                                                {w.type}
+                                            </div>
+                                            <div className="text-slate-400 truncate">
+                                                {JSON.stringify(w.payload)}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {!debug?.lastWrites?.length && <div className="text-xs text-slate-600 italic">No writes yet</div>}
+                                </div>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Last 5 Events</label>
+                                <div className="space-y-2">
+                                    {debug?.lastEvents?.map((e: any, i: number) => (
+                                        <div key={i} className="bg-slate-900 p-2 rounded text-[10px] font-mono border border-slate-800">
+                                            <div className="text-indigo-400 font-bold mb-1">{e.eventType}</div>
+                                            <div className="text-slate-400 break-all">
+                                                {JSON.stringify(e.new || e.old)}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
