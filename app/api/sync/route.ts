@@ -576,7 +576,7 @@ export async function POST(request: Request) {
                     const { error, data: deletedRow } = await supabaseAdmin.from('devices')
                         .update({
                             deleted_at: new Date().toISOString(),
-                            // deleted_by: userId // if column exists
+                            deleted_by: userId
                         })
                         .eq('id', delPayload.id)
                         .select()

@@ -37,6 +37,29 @@ export type AppState = {
 
     isLoading: boolean;
     lastError: string | null; // GLOBAL ERROR STATE
+
+    // Debug / Instrumentation
+    debug: {
+        realtimeStatus: string;
+        lastEvents: unknown[];
+        lastWrites: unknown[];
+    };
+};
+
+// Helper for error logging
+const logErrorToUsage = async (userId: string | undefined, message: string, context: string, payload?: any) => {
+    try {
+        await fetch('/api/log-error', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(userId ? { 'x-user-id': userId } : {})
+            },
+            body: JSON.stringify({ message, context, payload })
+        });
+    } catch (e) {
+        console.error("Failed to log error to backend", e);
+    }
 };
 
 type AppContextType = AppState & {
@@ -100,6 +123,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
         isLoading: true,
         lastError: null,
+        debug: {
+            realtimeStatus: 'CONNECTING',
+            lastEvents: [],
+            lastWrites: []
+        }
     });
 
     const isResettingRef = useRef(false);
@@ -158,6 +186,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             }
         } catch (error) {
             console.error("Failed to sync state", error);
+            logErrorToUsage(state.currentUser?.id, (error as Error).message, 'refreshState');
         }
     };
 
@@ -179,27 +208,40 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             clearInterval(interval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // REALTIME SUBSCRIPTION
     useEffect(() => {
         const supabase = createClient();
         let channel: RealtimeChannel | null = null;
+        const bizId = state.business?.id;
 
-        if (state.business?.id) {
-            console.log(`[Realtime] Subscribing to business: ${state.business.id}`);
+        if (bizId) {
+            console.log(`[Realtime] Subscribing to business: ${bizId}`);
+            setState(prev => ({ ...prev, debug: { ...prev.debug, realtimeStatus: 'CONNECTING' } }));
 
-            channel = supabase.channel(`occupancy_${state.business.id}`)
+            channel = supabase.channel(`occupancy_strict_${bizId}`)
                 .on(
                     'postgres_changes',
                     {
                         event: '*',
                         schema: 'public',
                         table: 'occupancy_snapshots',
-                        filter: `business_id=eq.${state.business.id}`
+                        filter: `business_id=eq.${bizId}` // Strict Filter by Tenant
                     },
                     (payload) => {
                         console.log('[Realtime] Snapshot Update:', payload);
+
+                        // Instrumentation
+                        setState(prev => ({
+                            ...prev,
+                            debug: {
+                                ...prev.debug,
+                                lastEvents: [payload, ...prev.debug.lastEvents].slice(0, 5)
+                            }
+                        }));
+
                         if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
                             const newSnap = payload.new as { area_id: string, current_occupancy: number };
                             setState(prev => ({
@@ -220,8 +262,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 )
                 .subscribe((status) => {
                     console.log(`[Realtime] Status changed: ${status}`);
+                    setState(prev => ({ ...prev, debug: { ...prev.debug, realtimeStatus: status } }));
+
                     if (status === 'SUBSCRIBED') {
-                        // Optional: Refetch to ensure we didn't miss anything while connecting
+                        // RECONNECT SAFETY: Refetch source of truth to ensure no gap
                         refreshState();
                     }
                 });
@@ -300,6 +344,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             } else {
                 const errData = await res.json().catch(() => ({}));
                 console.error("API Error in recordEvent", errData);
+                logErrorToUsage(state.currentUser.id, `Record Event Failed: ${errData.error}`, 'recordEvent', { data, errData });
+
                 // Revert optimistic update
                 setState(prev => ({
                     ...prev,
@@ -309,6 +355,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             }
         } catch (error) {
             console.error("Failed to record event - Network/Server Error", error);
+            logErrorToUsage(state.currentUser.id, `Record Event Network Error: ${(error as Error).message}`, 'recordEvent', { data });
+
             // Revert optimistic update
             setState(prev => ({
                 ...prev,
@@ -552,6 +600,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 const errData = await res.json().catch(() => ({ error: 'Unknown JSON parsing error' }));
                 console.error("Delete Clicr Failed API", errData);
                 setLastError(`Delete Failed: ${errData.error || res.statusText}`);
+                logErrorToUsage(state.currentUser.id, `Delete Clicr Failed: ${errData.error}`, 'deleteClicr', { clicrId });
 
                 // Revert
                 if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
@@ -561,6 +610,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         } catch (e) {
             console.error("Delete Clicr Network Error", e);
             setLastError(`Delete Failed: ${(e as Error).message}`);
+            logErrorToUsage(state.currentUser.id, `Delete Clicr Network Error: ${(e as Error).message}`, 'deleteClicr', { clicrId });
+
             if (originalClicr) setState(prev => ({ ...prev, clicrs: [...prev.clicrs, originalClicr] }));
             return { success: false, error: (e as Error).message };
         }

@@ -35,8 +35,12 @@ export default async function DebugPage() {
                 </div>
 
                 <section className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
-                    <h2 className="text-lg font-bold mb-4 text-slate-700 border-b pb-2">1. Environment</h2>
+                    <h2 className="text-lg font-bold mb-4 text-slate-700 border-b pb-2">1. Environment & Build</h2>
                     <div className="grid grid-cols-[120px_1fr] gap-2">
+                        <div className="text-slate-500">Build SHA:</div>
+                        <div className="font-mono font-bold">{process.env.NEXT_PUBLIC_GIT_SHA || 'UNKNOWN'}</div>
+                        <div className="text-slate-500">Build Time:</div>
+                        <div>{process.env.NEXT_PUBLIC_BUILD_TIME || 'UNKNOWN'}</div>
                         <div className="text-slate-500">URL:</div>
                         <div className="font-bold break-all">{envUrl}</div>
                         <div className="text-slate-500">Project Ref:</div>
