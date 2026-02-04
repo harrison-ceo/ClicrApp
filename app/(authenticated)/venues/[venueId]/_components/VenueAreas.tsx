@@ -103,15 +103,28 @@ export default function VenueAreas({ venueId }: { venueId: string }) {
                                     </span>
                                 )}
                             </div>
-                            <div className="flex items-center gap-4 mt-1 text-sm text-slate-400">
-                                <span className="flex items-center gap-1">
-                                    <Shield className="w-3 h-3" />
-                                    Cap: {area.default_capacity || '∞'}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                    <Smartphone className="w-3 h-3" />
-                                    {area.counting_mode === 'MANUAL' ? 'Manual Only' : area.counting_mode === 'AUTO_FROM_SCANS' ? 'Scans Only' : 'Hybrid'}
-                                </span>
+                            <div className="flex flex-col gap-2 mt-2 w-full max-w-[200px]">
+                                <div className="flex justify-between text-xs font-mono">
+                                    <span className={cn(
+                                        "font-bold",
+                                        (area.current_occupancy || 0) >= (area.default_capacity || 0) && (area.default_capacity || 0) > 0 ? "text-red-400" : "text-slate-300"
+                                    )}>
+                                        {area.current_occupancy || 0} / {area.default_capacity || '∞'}
+                                    </span>
+                                    <span className="text-slate-500">
+                                        {(area.default_capacity || 0) > 0 ? `${Math.round(((area.current_occupancy || 0) / area.default_capacity!) * 100)}%` : '-'}
+                                    </span>
+                                </div>
+                                {(area.default_capacity || 0) > 0 && (
+                                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                        <div
+                                            className={cn("h-full transition-all duration-500",
+                                                ((area.current_occupancy || 0) / area.default_capacity!) > 0.9 ? "bg-red-500" : "bg-primary"
+                                            )}
+                                            style={{ width: `${Math.min(((area.current_occupancy || 0) / area.default_capacity!) * 100, 100)}%` }}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </div>
 

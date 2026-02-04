@@ -54,7 +54,7 @@ export default function ClicrListPage() {
                             {(area.clicrs || []).length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                     {area.clicrs.map(clicr => (
-                                        <ClicrCard key={clicr.id} clicr={clicr} />
+                                        <ClicrCard key={clicr.id} clicr={clicr} occupancy={area.current_occupancy || 0} />
                                     ))}
                                 </div>
                             ) : (
@@ -74,7 +74,7 @@ export default function ClicrListPage() {
     );
 }
 
-function ClicrCard({ clicr }: { clicr: any }) {
+function ClicrCard({ clicr, occupancy }: { clicr: any, occupancy: number }) {
     const flowMode = clicr.flow_mode || (clicr.role === 'ENTRY/EXIT' ? 'BIDIRECTIONAL' : 'BIDIRECTIONAL');
 
     return (
@@ -104,7 +104,7 @@ function ClicrCard({ clicr }: { clicr: any }) {
 
                 <div className="flex items-end justify-between mt-4">
                     <div className="text-3xl font-mono font-bold text-slate-200">
-                        {clicr.current_count}
+                        {occupancy}
                     </div>
                     <div className="flex items-center gap-1 text-slate-500 group-hover:text-white text-xs font-bold uppercase tracking-widest transition-colors">
                         Open <ArrowRight className="w-3 h-3" />

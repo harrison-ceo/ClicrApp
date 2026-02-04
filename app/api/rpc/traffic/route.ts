@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
         let query = supabaseAdmin
             .from('occupancy_events')
-            .select('delta, flow_type')
+            .select('delta, flow_type, source')
             .eq('business_id', business_id)
             .gte('timestamp', start)
             .lte('timestamp', end);
@@ -58,6 +58,10 @@ export async function POST(request: Request) {
         const event_count = events?.length || 0;
 
         events?.forEach((e: any) => {
+            if (e.source === 'reset') {
+                net_delta += e.delta;
+                return;
+            }
             const d = e.delta;
             net_delta += d;
             if (d > 0) total_in += d;

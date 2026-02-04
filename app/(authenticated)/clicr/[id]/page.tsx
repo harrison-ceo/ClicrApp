@@ -580,13 +580,13 @@ export default function ClicrCounterPage() {
 
     // Robust check: If clicr missing but we have ID, maybe wait a bit or show helpful error
     if (!clicr) {
+        // Fallback: This might happen during a hard sync or if the device was just added/removed.
         return (
             <div className="min-h-screen bg-black flex flex-col items-center justify-center text-slate-400 gap-4">
-                <div className="text-xl font-bold text-white">Device Not Found</div>
-                <div className="text-sm">ID: {id}</div>
-                <button onClick={() => window.location.reload()} className="px-4 py-2 bg-primary text-black font-bold rounded">
-                    Retry
-                </button>
+                <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                <div className="text-sm">Syncing Device State...</div>
+                {/* Hidden debug info just in case */}
+                <div className="hidden">ID: {id}</div>
             </div>
         );
     }
