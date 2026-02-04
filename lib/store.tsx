@@ -184,9 +184,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                     scanEvents: data.scanEvents || [],
                     isLoading: false
                 }));
+            } else {
+                console.warn("Sync failed with status:", res.status);
+                setState(prev => ({ ...prev, isLoading: false }));
             }
         } catch (error) {
             console.error("Failed to sync state", error);
+            setState(prev => ({ ...prev, isLoading: false }));
             // safe access to state inside callback? using prev is better, but here we just read ID for logging
             // logErrorToUsage(state.currentUser?.id, (error as Error).message, 'refreshState');
             // Avoiding state dep here to keep stable

@@ -43,7 +43,7 @@ async function hydrateData(data: DBData, userId?: string): Promise<DBData> {
         if (effectiveBizId) venueQuery = venueQuery.eq('business_id', effectiveBizId);
         const { data: sbVenues } = await venueQuery;
 
-        if (sbVenues) {
+        if (sbVenues && sbVenues.length > 0) {
             // Replace local venues with Supabase venues
             data.venues = sbVenues.map((v) => ({
                 id: v.id,
@@ -61,6 +61,16 @@ async function hydrateData(data: DBData, userId?: string): Promise<DBData> {
                 created_at: v.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             }));
+        } else if (data.venues.length > 0) {
+            console.log("[Hydration] Seeding Venues to Supabase...", effectiveBizId);
+            const seedVenues = data.venues.map(v => ({
+                id: v.id,
+                business_id: effectiveBizId || 'biz_001',
+                name: v.name,
+                total_capacity: v.default_capacity_total,
+                status: 'ACTIVE'
+            }));
+            await supabaseAdmin.from('venues').upsert(seedVenues);
         }
 
         // Fetch Areas (Scoped)
@@ -75,7 +85,7 @@ async function hydrateData(data: DBData, userId?: string): Promise<DBData> {
 
         const { data: sbAreas } = await areaQuery;
 
-        if (sbAreas) {
+        if (sbAreas && sbAreas.length > 0) {
             data.areas = sbAreas.map((a) => ({
                 id: a.id,
                 venue_id: a.venue_id,
@@ -88,6 +98,16 @@ async function hydrateData(data: DBData, userId?: string): Promise<DBData> {
                 created_at: a.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString()
             }));
+        } else if (data.areas.length > 0) {
+            console.log("[Hydration] Seeding Areas to Supabase...");
+            const seedAreas = data.areas.map(a => ({
+                id: a.id,
+                venue_id: a.venue_id,
+                name: a.name,
+                capacity: a.default_capacity,
+                counting_mode: 'MANUAL',
+            }));
+            await supabaseAdmin.from('areas').upsert(seedAreas);
         }
 
         // Fetch Users (Scoped)
