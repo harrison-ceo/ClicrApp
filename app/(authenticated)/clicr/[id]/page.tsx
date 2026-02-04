@@ -72,7 +72,14 @@ export default function ClicrCounterPage() {
 
     // Calculate total area occupancy from SNAPSHOT (Source of Truth)
     const currentArea = (areas || []).find(a => a.id === clicr?.area_id);
-    const totalAreaCount = currentArea?.current_occupancy || 0;
+    const lastOccupancyRef = useRef<number | null>(null);
+
+    if (currentArea?.current_occupancy !== undefined) {
+        lastOccupancyRef.current = currentArea.current_occupancy;
+    }
+
+    // Prevents flash to 0 if data momentarily disappears during sync
+    const totalAreaCount = currentArea?.current_occupancy ?? lastOccupancyRef.current;
 
     // Calculate aggregated stats for the ENTIRE VENUE from SNAPSHOTS
     const venueId = currentArea?.venue_id;
@@ -84,31 +91,37 @@ export default function ClicrCounterPage() {
 
     // Keep event-based stats for "Session" view if needed, but rely on snapshots for enforcement
     const venueEvents = (events || []).filter(e => e.venue_id === venueId);
+
     /**
      * TRAFFIC STATS (IN / OUT)
      * - Source: occupancy_events (via RPC)
      * - Scope: Filtered by Area if device is assigned, else Venue.
      */
-    const [trafficStats, setTrafficStats] = useState({ total_in: 0, total_out: 0 });
+    const [trafficStats, setTrafficStats] = useState<{ total_in: number, total_out: number } | null>(null);
 
     useEffect(() => {
         if (!venueId || !venue?.business_id) return;
+
         const fetchTraffic = async () => {
             const areaId = clicr?.area_id;
-            console.log("Fetching traffic for scope:", { venueId, areaId });
+            // console.log("Fetching traffic for scope:", { venueId, areaId });
 
-            const stats = await getTrafficTotals({
-                business_id: venue.business_id,
-                venue_id: venueId,
-                area_id: areaId
-            }, getTodayWindow());
-            setTrafficStats(stats);
+            try {
+                const stats = await getTrafficTotals({
+                    business_id: venue.business_id,
+                    venue_id: venueId,
+                    area_id: areaId
+                }, getTodayWindow());
+                setTrafficStats(stats);
+            } catch (e) {
+                console.error("Traffic fetch failed", e);
+            }
         };
         fetchTraffic();
     }, [venueId, venue?.business_id, clicr?.area_id, events]);
 
-    const globalIn = trafficStats.total_in;
-    const globalOut = trafficStats.total_out;
+    const globalIn = trafficStats?.total_in;
+    const globalOut = trafficStats?.total_out;
 
     // DEBUG PANEL STATE
     const [showDebug, setShowDebug] = useState(false);
@@ -655,10 +668,10 @@ export default function ClicrCounterPage() {
                         {/* Main Big Occupancy Display */}
                         <div className="relative group cursor-default">
                             <div className="text-[15vh] md:text-9xl leading-none font-mono font-bold text-white tracking-widest tabular-nums filter drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
-                                {totalAreaCount}
+                                {totalAreaCount !== undefined && totalAreaCount !== null ? totalAreaCount : <span className="text-4xl animate-pulse">...</span>}
                             </div>
                             <div className="text-center text-slate-500 font-bold uppercase tracking-[0.2em] text-xs mt-2">
-                                Live Occupancy
+                                {totalAreaCount !== undefined && totalAreaCount !== null ? "Live Occupancy" : "Connecting..."}
                             </div>
                         </div>
 
@@ -673,7 +686,7 @@ export default function ClicrCounterPage() {
                                     <ArrowUpCircle className="w-4 h-4" />
                                     <span className="text-[10px] font-bold uppercase">Total In</span>
                                 </div>
-                                <div className="text-xl font-mono text-white font-bold">{globalIn}</div>
+                                <div className="text-xl font-mono text-white font-bold">{globalIn ?? '-'}</div>
                                 <div className="text-[9px] text-slate-500 uppercase tracking-wider mt-0.5">Adjust</div>
                             </button>
 
@@ -683,7 +696,7 @@ export default function ClicrCounterPage() {
                                     <ArrowDownCircle className="w-4 h-4" />
                                     <span className="text-[10px] font-bold uppercase">Total Out</span>
                                 </div>
-                                <div className="text-xl font-mono text-white font-bold">{globalOut}</div>
+                                <div className="text-xl font-mono text-white font-bold">{globalOut ?? '-'}</div>
                             </div>
                         </div>
                     </div>

@@ -88,3 +88,24 @@ export const getVenueSummaries = (venues: Venue[], areas: Area[]) => {
         live_occupancy: getCurrentOccupancy(areas, { business_id: v.business_id, venue_id: v.id })
     }));
 };
+
+// 4. Get Area Summaries (Detail)
+export const getAreaSummaries = (areas: Area[], venueId: string) => {
+    return areas
+        .filter(a => a.venue_id === venueId)
+        .map(a => {
+            const current = a.current_occupancy || 0;
+            const capacity = a.default_capacity || 0;
+            const percent = capacity > 0 ? Math.round((current / capacity) * 100) : 0;
+
+            return {
+                id: a.id,
+                name: a.name,
+                current_occupancy: current,
+                capacity: capacity,
+                percent_full: percent,
+                type: a.area_type,
+                mode: a.counting_mode
+            };
+        });
+};
