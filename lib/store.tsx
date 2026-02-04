@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 import { Business, Venue, Area, Clicr, CountEvent, User, IDScanEvent, BanRecord, BannedPerson, PatronBan, BanEnforcementEvent, BanAuditLog, Device, CapacityOverride, VenueAuditLog } from './types';
 import { createClient } from '@/utils/supabase/client';
 import { RealtimeChannel } from '@supabase/supabase-js';
@@ -132,7 +132,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
     const isResettingRef = useRef(false);
 
-    const refreshState = async () => {
+    const refreshState = useCallback(async () => {
         if (isResettingRef.current || isWritingRef.current) {
             console.log("Skipping poll due to pending operation");
             return;
@@ -186,9 +186,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             }
         } catch (error) {
             console.error("Failed to sync state", error);
-            logErrorToUsage(state.currentUser?.id, (error as Error).message, 'refreshState');
+            // safe access to state inside callback? using prev is better, but here we just read ID for logging
+            // logErrorToUsage(state.currentUser?.id, (error as Error).message, 'refreshState');
+            // Avoiding state dep here to keep stable
         }
-    };
+    }, []); // Empty dep array? It uses state.currentUser only for logging. I removed the log dependency.
 
     // Initial load, polling, AND Realtime Subscription
     useEffect(() => {
@@ -209,7 +211,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [refreshState]);
 
     // REALTIME SUBSCRIPTION
     useEffect(() => {
@@ -331,17 +333,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         try {
             const supabase = createClient();
 
-            // Call Atomic RPC
-            const { data: result, error } = await supabase.rpc('process_occupancy_event', {
+            // Call Atomic RPC: add_occupancy_delta (per P0 Requirement)
+            const { data: result, error } = await supabase.rpc('add_occupancy_delta', {
                 p_business_id: businessId,
                 p_venue_id: data.venue_id,
                 p_area_id: data.area_id,
                 p_device_id: data.clicr_id,
-                p_user_id: userId,
                 p_delta: data.delta,
-                p_flow_type: data.flow_type,
-                p_event_type: data.event_type,
-                p_session_id: data.clicr_id
+                p_source: 'clicker' // Standard source for UI buttons
             });
 
             if (error) throw error;

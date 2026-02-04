@@ -141,3 +141,34 @@ BEGIN
     RETURN jsonb_build_object('success', true, 'previous_count', v_prev_count);
 END;
 $$;
+
+-- 5. Strict Requirement Wrapper: add_occupancy_delta
+-- Matches the P0 requirement signature but handles types safely.
+CREATE OR REPLACE FUNCTION add_occupancy_delta(
+  p_business_id uuid,
+  p_venue_id uuid,
+  p_area_id uuid,
+  p_device_id text, -- Changed to TEXT to match process_occupancy_event safety
+  p_delta int,
+  p_source text
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_result jsonb;
+BEGIN
+  v_result := process_occupancy_event(
+    p_business_id,
+    p_venue_id,
+    p_area_id,
+    p_device_id,
+    auth.uid(), -- Securely use the authenticated user
+    p_delta,
+    CASE WHEN p_delta > 0 THEN 'IN' ELSE 'OUT' END,
+    p_source,
+    NULL
+  );
+  RETURN v_result;
+END;
+$$;
