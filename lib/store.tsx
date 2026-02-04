@@ -255,45 +255,35 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 },
                 onSnapshot: (payload) => {
                     const newSnap = payload.new;
-                    // Debug Log
                     setState(prev => ({
                         ...prev,
                         debug: {
                             ...prev.debug,
-                            lastSnapshots: [newSnap, ...prev.debug.lastSnapshots].slice(0, 5)
-                        }
+                            lastSnapshots: [newSnap, ...prev.debug.lastSnapshots].slice(0, 10)
+                        },
+                        areas: prev.areas.map(a =>
+                            a.id === newSnap.area_id
+                                ? { ...a, current_occupancy: newSnap.current_occupancy }
+                                : a
+                        )
                     }));
-
-                    // Update Live Occupancy in State
-                    if (newSnap && newSnap.area_id) {
-                        setState(prev => ({
-                            ...prev,
-                            areas: prev.areas.map(a => {
-                                if (a.id === newSnap.area_id) {
-                                    // console.log(`[Realtime] Area ${a.name} -> ${newSnap.current_occupancy}`);
-                                    return { ...a, current_occupancy: newSnap.current_occupancy };
-                                }
-                                return a;
-                            })
-                        }));
-                    }
                 },
                 onEvent: (payload) => {
+                    // 1. Refresh Totals immediately
+                    refreshTrafficStats();
+
+                    // 2. Add to local list for debug
                     const newEvent = payload.new;
                     setState(prev => ({
                         ...prev,
-                        debug: {
-                            ...prev.debug,
-                            lastEvents: [newEvent, ...prev.debug.lastEvents].slice(0, 5)
-                        }
+                        debug: { ...prev.debug, lastEvents: [newEvent, ...prev.debug.lastEvents].slice(0, 20) },
+                        events: [newEvent, ...prev.events].slice(0, 50)
                     }));
-                    // REFETCH TOTALS ON EVENT
-                    refreshTrafficStats();
                 }
             });
         }
         return () => realtimeManager.current.unsubscribe();
-    }, [state.business?.id, refreshState, refreshTrafficStats]);
+    }, [state.business?.id, refreshTrafficStats, refreshState]);
 
     // Auth Fetch helper
     const authFetch = async (body: Record<string, unknown>) => {
