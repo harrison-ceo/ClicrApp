@@ -67,7 +67,7 @@ type AppContextType = AppState & {
     recordEvent: (event: Omit<CountEvent, 'id' | 'timestamp' | 'user_id' | 'business_id'>) => Promise<void>;
     recordScan: (scan: Omit<IDScanEvent, 'id' | 'timestamp'>) => Promise<void>;
     // ... other methods ...
-    resetCounts: (venueId?: string, areaId?: string) => void;
+    resetCounts: (scope: 'AREA' | 'VENUE' | 'BUSINESS', targetId: string) => Promise<void>;
     refreshTrafficStats: (venueId?: string, areaId?: string) => Promise<void>;
     addUser: (user: User) => Promise<void>;
     updateUser: (user: User) => Promise<void>;
@@ -426,71 +426,27 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    const resetCounts = async (venueId?: string, areaId?: string) => {
-        // LOCK polling to prevent race conditions
-        isResettingRef.current = true;
 
-        // Optimistic update
-        const optimisticState = {
-            ...state,
-            clicrs: state.clicrs.map(c => {
-                // If areaId provided, match area. If venueId provided, match venue (via area lookup if needed).
-                // Or simply: if we are viewing an Area, we likely passed areaId.
-                if (areaId && c.area_id === areaId) return { ...c, current_count: 0 };
-                if (venueId && !areaId) {
-                    // Check if clicr belongs to venue. Since Clicr -> Area -> Venue, we need Area map.
-                    const area = state.areas.find(a => a.id === c.area_id);
-                    if (area && area.venue_id === venueId) return { ...c, current_count: 0 };
-                }
-                // If global reset (legacy)
-                if (!venueId && !areaId) return { ...c, current_count: 0 };
-
-                return c;
-            }),
-            areas: state.areas.map(a => {
-                if (areaId && a.id === areaId) return { ...a, current_occupancy: 0 };
-                if (venueId && a.venue_id === venueId) return { ...a, current_occupancy: 0 };
-                if (!venueId && !areaId) return { ...a, current_occupancy: 0 }; // Global
-                return a;
-            })
-        };
-        setState(optimisticState);
-
-        try {
-            const res = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'RESET_COUNTS', venue_id: venueId, area_id: areaId }),
-                cache: 'no-store'
-            });
-
-            if (res.ok) {
-                const updatedDB = await res.json();
-                setState(prev => ({ ...prev, ...updatedDB }));
-            }
-        } catch (error) {
-            console.error("Failed to reset counts", error);
-        } finally {
-            // UNLOCK polling
-            isResettingRef.current = false;
-            // Force immediate fresh poll
-            refreshState();
-        }
-    };
 
     const refreshTrafficStats = async (venueId?: string, areaId?: string) => {
-        // Fetch accurate traffic totals from server (RPC)
-        // This ensures Dashboard and Reports match.
+        const businessId = state.business?.id;
+        if (!businessId) return;
+
         try {
-            const res = await authFetch({
-                action: 'GET_TRAFFIC_STATS',
-                payload: { venue_id: venueId, area_id: areaId }
+            // New dedicated endpoint
+            const res = await fetch('/api/rpc/traffic', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    business_id: businessId,
+                    venue_id: venueId,
+                    area_id: areaId,
+                    range_type: 'TODAY'
+                })
             });
 
             if (res.ok) {
                 const { stats } = await res.json();
-                // Expecting array: [{ area_id, total_in, total_out }]
-
                 if (Array.isArray(stats)) {
                     setState(prev => ({
                         ...prev,
@@ -503,6 +459,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                                     current_traffic_out: stat.total_out
                                 };
                             }
+                            // If not found in stats (no traffic today), set to 0 to be safe?
+                            // Or leave as is? If we fetched *all* stats for business, missing means 0.
+                            // If we fetched specific venue, missing in that venue means 0.
+                            // Safest is to only update if stat found OR if we know we fetched universal scope.
+                            // For now, update if found.
                             return a;
                         })
                     }));
@@ -512,6 +473,51 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             console.error("Failed to refresh traffic stats", e);
         }
     };
+
+    const resetCounts = async (scope: 'AREA' | 'VENUE' | 'BUSINESS', targetId: string) => {
+        const businessId = state.business?.id;
+        const userId = state.currentUser?.id;
+
+        if (!businessId) return;
+
+        // Optimistic Update
+        setState(prev => ({
+            ...prev,
+            areas: prev.areas.map(a => {
+                if (scope === 'BUSINESS') return { ...a, current_occupancy: 0 };
+                if (scope === 'VENUE' && a.venue_id === targetId) return { ...a, current_occupancy: 0 };
+                if (scope === 'AREA' && a.id === targetId) return { ...a, current_occupancy: 0 };
+                return a;
+            })
+        }));
+
+        try {
+            const res = await fetch('/api/rpc/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    business_id: businessId,
+                    scope,
+                    target_id: targetId,
+                    user_id: userId
+                })
+            });
+
+            if (!res.ok) {
+                throw new Error('Reset failed');
+            }
+
+            // Force full refresh to ensure snapshots and events align
+            await refreshState();
+            await refreshTrafficStats();
+
+        } catch (e) {
+            console.error("Reset Failed", e);
+            // Revert? (Complex to revert reset, just notify user)
+            setLastError("Failed to reset counts on server.");
+        }
+    };
+
 
     const addUser = async (user: User) => {
         // Optimistic

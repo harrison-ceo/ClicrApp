@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { KpiCard } from '@/components/ui/KpiCard';
+import { getVenueCapacityRules } from '@/lib/capacity';
 import { AreaChart, Area as RechartsArea, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 export default function VenueOverview({ venueId, setActiveTab }: { venueId: string, setActiveTab: (tab: any) => void }) {
@@ -27,8 +28,10 @@ export default function VenueOverview({ venueId, setActiveTab }: { venueId: stri
 
     // Live Stats (Source of truth: Area Snapshots)
     const currentOccupancy = venueAreas.reduce((sum, a) => sum + (a.current_occupancy || 0), 0);
-    const capacityPct = venue?.default_capacity_total
-        ? (currentOccupancy / venue.default_capacity_total) * 100
+
+    const { maxCapacity } = getVenueCapacityRules(venue);
+    const capacityPct = maxCapacity
+        ? (currentOccupancy / maxCapacity) * 100
         : 0;
 
     // Traffic Stats (Source of truth: Server Synced Stats on Area)

@@ -206,6 +206,46 @@
       "flow_type": "IN",
       "event_type": "qa_test",
       "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "timestamp": 1770230086219
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "qa_device_001",
+      "delta": 1,
+      "flow_type": "IN",
+      "event_type": "qa_test",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "timestamp": 1770230032719
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "qa_device_001",
+      "delta": 1,
+      "flow_type": "IN",
+      "event_type": "qa_test",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "timestamp": 1770229959414
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "qa_device_001",
+      "delta": 1,
+      "flow_type": "IN",
+      "event_type": "qa_test",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "timestamp": 1770229930154
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "qa_device_001",
+      "delta": 1,
+      "flow_type": "IN",
+      "event_type": "qa_test",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
       "timestamp": 1770229257770
     },
     {

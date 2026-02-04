@@ -10,6 +10,7 @@ import { IDScanEvent } from '@/lib/types';
 import { parseAAMVA } from '@/lib/aamva';
 import { evaluateScan } from '@/lib/scan-service';
 import { Html5Qrcode } from 'html5-qrcode';
+import { getVenueCapacityRules } from '@/lib/capacity';
 
 // Mock data generator for simulation
 const generateMockID = () => {
@@ -79,8 +80,9 @@ export default function ClicrCounterPage() {
 
     // Keep event-based stats for "Session" view if needed, but rely on snapshots for enforcement
     const venueEvents = (events || []).filter(e => e.venue_id === venueId);
-    const globalIn = venueEvents.reduce((acc, e) => e.flow_type === 'IN' ? acc + e.delta : acc, 0);
-    const globalOut = venueEvents.reduce((acc, e) => e.flow_type === 'OUT' ? acc + Math.abs(e.delta) : acc, 0);
+    // Traffic Stats (Source: Server Aggregated)
+    const globalIn = venueAreas.reduce((sum, a) => sum + (a.current_traffic_in || 0), 0);
+    const globalOut = venueAreas.reduce((sum, a) => sum + (a.current_traffic_out || 0), 0);
 
     // DEBUG PANEL STATE
     const [showDebug, setShowDebug] = useState(false);
@@ -219,10 +221,10 @@ export default function ClicrCounterPage() {
     // if (!clicr) return <div className="p-8 text-white">Clicr not found</div>;
 
     const handleGenderTap = (gender: 'M' | 'F', delta: number) => {
+        if (!clicr) return;
         // ENFORCEMENT CHECK
-        if (delta > 0 && venue) {
-            const maxCap = venue.default_capacity_total || 0;
-            const mode = venue.capacity_enforcement_mode || 'WARN_ONLY';
+        if (delta > 0) {
+            const { maxCapacity: maxCap, mode } = getVenueCapacityRules(venue);
 
             if (maxCap > 0 && currentVenueOccupancy >= maxCap) {
                 if (mode === 'HARD_STOP') {
@@ -288,6 +290,7 @@ export default function ClicrCounterPage() {
     };
 
     const handleBulkSubmit = () => {
+        if (!clicr) return;
         if (bulkValue !== 0) {
             recordEvent({
                 venue_id: venueId || 'ven_001',
@@ -307,24 +310,13 @@ export default function ClicrCounterPage() {
     // Reset Logic
     const handleReset = async () => {
         if (!window.confirm('WARNING: RESET ALL COUNTS TO ZERO?')) return;
+        if (!venueId) return;
 
         try {
-            // 1. Optimistic Local Update via Store
-            resetCounts(); // This clears the context state immediately
-
-            // 2. Clear Local State
+            await resetCounts('VENUE', venueId);
             setBulkValue(0);
             setLastScan(null);
             setScannerInput('');
-
-            // 3. Force API call just in case store didn't strictly sync yet
-            await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'RESET_COUNTS', venue_id: venueId || 'ven_001' }), // Explicit venue_id
-                cache: 'no-store'
-            });
-
         } catch (e) {
             console.error("Reset failed", e);
             alert("Failed to reset. Please try again or check connection.");
@@ -337,21 +329,66 @@ export default function ClicrCounterPage() {
     // Unified Scan Processor (The Brain)
 
     // Unified Scan Processor (The Brain)
-    const processScan = (parsed: ReturnType<typeof parseAAMVA>) => {
-        // 1. Evaluate against Rules (Age, Expiration, Bans)
+    // Unified Scan Processor (The Brain)
+    const processScan = async (parsed: ReturnType<typeof parseAAMVA>, rawData?: string) => {
+        // 1. API Verification (Preferred for Hardware Scans)
+        if (rawData) {
+            try {
+                const res = await fetch('/api/verify-id', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        scan_data: rawData,
+                        business_id: venue?.business_id || 'biz_001',
+                        venue_id: venueId || 'ven_001',
+                        area_id: clicr?.area_id
+                    })
+                });
+
+                const json = await res.json();
+
+                if (json.success) {
+                    const { status, message, age, dob, name } = json.data;
+
+                    const scanEvent: any = {
+                        venue_id: venueId || '',
+                        scan_result: status,
+                        age: age,
+                        age_band: age >= 21 ? '21+' : 'Under 21',
+                        sex: 'U', // API enhancement needed for Sex if crucial
+                        zip_code: '00000',
+                        uiMessage: message,
+                        timestamp: Date.now()
+                    };
+
+                    setLastScan(scanEvent);
+
+                    // Haptic Feedback
+                    if (status === 'ACCEPTED') {
+                        if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
+                    } else {
+                        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                    }
+                    setShowCameraScanner(false);
+                    return; // API handled everything
+                }
+            } catch (e) {
+                console.error("API Scan Failed, falling back to local", e);
+            }
+        }
+
+        // 2. Fallback (Simulation or API Failure or Manual Parsing)
         // We use the NEW scan-service logic here
         const result = evaluateScan(parsed, patrons, patronBans, venueId || 'ven_001');
 
-        // 2. Construct Scan Event
+        // ... Local Logic (Same as before) ...
         const scanEvent: Omit<IDScanEvent, 'id' | 'timestamp'> = {
             venue_id: venueId || 'ven_001',
-            scan_result: result.status === 'ACCEPTED' ? 'ACCEPTED' : 'DENIED', // Map WARNED to DENIED for now or handle
+            scan_result: result.status === 'ACCEPTED' ? 'ACCEPTED' : 'DENIED',
             age: result.age || 0,
-            age_band: result.age ? (result.age >= 21 ? '21+' : 'Under 21') : 'Unknown', // Simple band logic
+            age_band: result.age ? (result.age >= 21 ? '21+' : 'Under 21') : 'Unknown',
             sex: parsed.sex || 'U',
             zip_code: parsed.postalCode || '00000',
-
-            // PII (Saved for Logs/Bans)
             first_name: parsed.firstName || undefined,
             last_name: parsed.lastName || undefined,
             dob: parsed.dateOfBirth || undefined,
@@ -361,66 +398,44 @@ export default function ClicrCounterPage() {
             city: parsed.city || undefined
         };
 
-        // 3. Record Scan to DB
         recordScan(scanEvent);
 
-        // 4. Update UI State (Green/Red Screen)
         setLastScan({
             ...scanEvent,
             id: 'temp',
             timestamp: Date.now(),
-            // @ts-ignore - Injecting custom message for UI to display ban reason
             uiMessage: result.message
-        });
+        } as any);
 
-        // 5. Automatic Count (if Accepted)
         if (result.status === 'ACCEPTED') {
             if (classifyMode) {
-                // CLASSIFY MODE: Require manual tap to count
-                setPendingScan({
-                    ...scanEvent,
-                    id: 'temp_pending',
-                    timestamp: Date.now()
-                });
-                if (navigator.vibrate) navigator.vibrate([30, 50, 30]); // Distinct vibrate
+                setPendingScan({ ...scanEvent, id: 'temp_pending', timestamp: Date.now() } as any);
+                if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
             } else {
-                // NORMAL MODE: Auto-count
-
-                // Enforce Capacity for Scans
+                // Check Capacity Locally if fallback
                 if (venue) {
                     const maxCap = venue.default_capacity_total || 0;
-                    const mode = venue.capacity_enforcement_mode || 'WARN_ONLY';
                     if (maxCap > 0 && currentVenueOccupancy >= maxCap) {
-                        if (mode === 'HARD_STOP') {
-                            alert("CAPACITY REACHED: Entry Blocked");
-                            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-                            return;
-                        }
-                        if ((mode === 'MANAGER_OVERRIDE' || mode === 'HARD_BLOCK' as any) && !window.confirm("Capacity Reached. Override?")) {
-                            return;
-                        }
+                        alert("CAPACITY REACHED");
+                        return;
                     }
                 }
 
                 recordEvent({
                     venue_id: venueId || 'ven_001',
-                    area_id: clicr.area_id,
-                    clicr_id: clicr.id,
+                    area_id: clicr?.area_id || 'area_001',
+                    clicr_id: clicr?.id || 'dev_001',
                     delta: 1,
                     flow_type: 'IN',
                     gender: parsed.sex || 'M',
                     event_type: 'SCAN',
                     idempotency_key: Math.random().toString(36)
                 });
-                // Haptic Feedback
                 if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
             }
         } else {
-            // Error Haptic
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
         }
-
-        // Close camera if open
         setShowCameraScanner(false);
     };
 
@@ -431,7 +446,7 @@ export default function ClicrCounterPage() {
         try {
             console.log("Processing Hardware Scan...");
             const parsed = parseAAMVA(scannerInput);
-            processScan(parsed);
+            processScan(parsed, scannerInput); // Pass Raw String!
         } catch (err) {
             console.error("Scan Parse Error", err);
             alert("Failed to parse ID. Please try again.");
@@ -463,6 +478,7 @@ export default function ClicrCounterPage() {
 
     // --- SPLIT VIEW HELPERS ---
     const activateSplit = (mode: 'INDEPENDENT' | 'LINKED') => {
+        if (!clicr) return;
         setSplitConfig(prev => ({ ...prev, mode }));
         setShowLayoutMenu(false);
         // If we haven't set up yet, show setup
@@ -545,8 +561,20 @@ export default function ClicrCounterPage() {
         return () => clearTimeout(timeout);
     }, [scannerInput]);
 
-    if (isLoading) return <div className="p-8 text-white">Connecting...</div>;
-    if (!clicr) return <div className="p-8 text-white">Clicr not found</div>;
+    if (isLoading) return <div className="min-h-screen bg-black flex items-center justify-center text-slate-500 animate-pulse">Connecting...</div>;
+
+    // Robust check: If clicr missing but we have ID, maybe wait a bit or show helpful error
+    if (!clicr) {
+        return (
+            <div className="min-h-screen bg-black flex flex-col items-center justify-center text-slate-400 gap-4">
+                <div className="text-xl font-bold text-white">Device Not Found</div>
+                <div className="text-sm">ID: {id}</div>
+                <button onClick={() => window.location.reload()} className="px-4 py-2 bg-primary text-black font-bold rounded">
+                    Retry
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-[100vh] bg-black relative overflow-hidden" onClick={() => inputRef.current?.focus()}>
