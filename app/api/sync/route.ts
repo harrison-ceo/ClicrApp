@@ -7,24 +7,41 @@ export const dynamic = 'force-dynamic';
 
 // --- HYDRATION HELPER ---
 // --- HYDRATION HELPER ---
-async function hydrateData(data: DBData): Promise<DBData> {
+// --- HYDRATION HELPER ---
+async function hydrateData(data: DBData, userId?: string): Promise<DBData> {
     try {
-        // 0. Fetch Structural Data (Source of Truth: Supabase)
-        const [
-            { data: sbBusinesses },
-            { data: sbVenues },
-            { data: sbAreas },
-            { data: sbProfiles }
-        ] = await Promise.all([
-            supabaseAdmin.from('businesses').select('*'),
-            supabaseAdmin.from('venues').select('*'),
-            supabaseAdmin.from('areas').select('*'),
-            supabaseAdmin.from('profiles').select('*')
-        ]);
+        let businessId: string | null = null;
 
-        if (sbBusinesses) {
-            data.business = sbBusinesses[0] as unknown as any; // Temporary bypass for mismatched schema logic
+        // 0. Resolve Tenant Context
+        if (userId) {
+            const { data: profile } = await supabaseAdmin.from('profiles').select('business_id').eq('id', userId).single();
+            if (profile?.business_id) {
+                businessId = profile.business_id;
+            }
         }
+
+        // 1. Fetch Structural Data (Source of Truth: Supabase)
+        let businessQuery = supabaseAdmin.from('businesses').select('*');
+
+        if (businessId) {
+            businessQuery = businessQuery.eq('id', businessId);
+        }
+
+        const { data: sbBusinesses } = await businessQuery;
+
+        // Set Active Business
+        if (sbBusinesses && sbBusinesses.length > 0) {
+            data.business = sbBusinesses[0] as unknown as any;
+        } else {
+            console.warn(`[Hydration] No business found for user ${userId || 'anon'}`);
+        }
+
+        const effectiveBizId = data.business?.id;
+
+        // Fetch Venues (Scoped)
+        let venueQuery = supabaseAdmin.from('venues').select('*');
+        if (effectiveBizId) venueQuery = venueQuery.eq('business_id', effectiveBizId);
+        const { data: sbVenues } = await venueQuery;
 
         if (sbVenues) {
             // Replace local venues with Supabase venues
@@ -33,20 +50,30 @@ async function hydrateData(data: DBData): Promise<DBData> {
                 business_id: v.business_id,
                 name: v.name,
                 address: v.address,
-                city: 'City', // Fallback as schema might differ slightly
+                city: 'City',
                 state: 'State',
                 zip: '00000',
-                capacity: v.total_capacity, // Keep for legacy if needed, but correct field is below
+                capacity: v.total_capacity,
                 default_capacity_total: v.total_capacity,
                 timezone: v.timezone || 'UTC',
-
-                // Required fields by Type
                 status: v.status || 'ACTIVE',
                 capacity_enforcement_mode: v.capacity_enforcement_mode || 'WARN_ONLY',
                 created_at: v.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             }));
         }
+
+        // Fetch Areas (Scoped)
+        const venueIds = data.venues.map(v => v.id);
+        let areaQuery = supabaseAdmin.from('areas').select('*');
+        if (venueIds.length > 0) {
+            areaQuery = areaQuery.in('venue_id', venueIds);
+        } else {
+            // If no venues, ensure no areas are returned from other tenants
+            areaQuery = areaQuery.eq('venue_id', '00000000-0000-0000-0000-000000000000');
+        }
+
+        const { data: sbAreas } = await areaQuery;
 
         if (sbAreas) {
             data.areas = sbAreas.map((a) => ({
@@ -55,8 +82,6 @@ async function hydrateData(data: DBData): Promise<DBData> {
                 name: a.name,
                 default_capacity: a.capacity,
                 parent_area_id: a.parent_area_id,
-
-                // Required fields by Type
                 area_type: 'MAIN',
                 counting_mode: 'MANUAL',
                 is_active: true,
@@ -64,6 +89,11 @@ async function hydrateData(data: DBData): Promise<DBData> {
                 updated_at: new Date().toISOString()
             }));
         }
+
+        // Fetch Users (Scoped)
+        let profileQuery = supabaseAdmin.from('profiles').select('*');
+        if (effectiveBizId) profileQuery = profileQuery.eq('business_id', effectiveBizId);
+        const { data: sbProfiles } = await profileQuery;
 
         // Sync Users & Permissions
         if (sbProfiles) {
@@ -234,7 +264,7 @@ export async function GET(request: Request) {
     const userEmail = request.headers.get('x-user-email');
 
     let data = readDB();
-    data = await hydrateData(data); // Apply Hydration
+    data = await hydrateData(data, userId || undefined); // Apply Hydration Scoped to User
 
     if (userId && userEmail) {
         let user = data.users.find(u => u.id === userId);
@@ -520,7 +550,9 @@ export async function POST(request: Request) {
             // ... (Pass through other cases directly) ...
             case 'GET_TRAFFIC_STATS':
                 // Payload: { venue_id?, area_id?, time_window?: 'TODAY' }
-                // For now, allow "Today" (start of day UTC).
+                const safePayload = payload || {};
+
+                // Resolve Business ID
 
                 // Resolve Business ID
                 let statsBizId = userId ? (await supabaseAdmin.from('profiles').select('business_id').eq('id', userId).single()).data?.business_id : null;
@@ -536,8 +568,8 @@ export async function POST(request: Request) {
                     .eq('business_id', statsBizId)
                     .gte('timestamp', startOfDay.toISOString());
 
-                if (payload.venue_id) query = query.eq('venue_id', payload.venue_id);
-                if (payload.area_id) query = query.eq('area_id', payload.area_id);
+                if (safePayload.venue_id) query = query.eq('venue_id', safePayload.venue_id);
+                if (safePayload.area_id) query = query.eq('area_id', safePayload.area_id);
 
                 const { data: eventsData, error: statsError } = await query;
 

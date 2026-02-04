@@ -255,6 +255,15 @@
         "cyjrnf",
         "7q2bsn"
       ]
+    },
+    {
+      "id": "37436576-7afe-4386-924a-228f6a319d57",
+      "name": "test_qa_auto",
+      "email": "test_qa_auto@clicr.co",
+      "role": "OWNER",
+      "assigned_venue_ids": [],
+      "assigned_area_ids": [],
+      "assigned_clicr_ids": []
     }
   ],
   "bans": [],

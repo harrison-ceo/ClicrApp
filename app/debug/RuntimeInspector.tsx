@@ -15,7 +15,7 @@ export default function RuntimeInspector() {
                     <div className="text-slate-500">Realtime:</div>
                     <div>
                         <span className={`inline-block px-2 py-1 rounded text-white text-xs font-bold ${debug.realtimeStatus === 'SUBSCRIBED' ? 'bg-green-500' :
-                                debug.realtimeStatus === 'CONNECTING' ? 'bg-amber-500' : 'bg-red-500'
+                            debug.realtimeStatus === 'CONNECTING' ? 'bg-amber-500' : 'bg-red-500'
                             }`}>
                             {debug.realtimeStatus}
                         </span>
@@ -70,9 +70,15 @@ export default function RuntimeInspector() {
                     <h2 className="text-lg font-bold mb-4 text-slate-700 border-b pb-2">Local Occupancy (Store)</h2>
                     <div className="font-mono text-xs">
                         {areas.map(a => (
-                            <div key={a.id} className="flex justify-between py-1 border-b last:border-0">
-                                <span>{a.name} ({a.id.substring(0, 6)}...):</span>
-                                <span className="font-bold">{a.current_occupancy}</span>
+                            <div key={a.id} className="flex flex-col py-1 border-b last:border-0">
+                                <div className="flex justify-between">
+                                    <span>{a.name} ({a.id.substring(0, 6)}...):</span>
+                                    <span className="font-bold">{a.current_occupancy}</span>
+                                </div>
+                                <div className="flex justify-end gap-2 text-xs text-slate-400">
+                                    <span className="text-emerald-600">IN: {a.current_traffic_in ?? '-'}</span>
+                                    <span className="text-amber-600">OUT: {a.current_traffic_out ?? '-'}</span>
+                                </div>
                             </div>
                         ))}
                     </div>
