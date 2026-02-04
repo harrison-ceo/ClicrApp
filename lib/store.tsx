@@ -333,14 +333,18 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         try {
             const supabase = createClient();
 
-            // Call Atomic RPC: add_occupancy_delta (per P0 Requirement)
-            const { data: result, error } = await supabase.rpc('add_occupancy_delta', {
+            // FALLBACK TO PREVIOUSLY WORKING RPC: process_occupancy_event
+            // The new strict RPC (add_occupancy_delta) might not be deployed on prod yet, causing the breakage.
+            const { data: result, error } = await supabase.rpc('process_occupancy_event', {
                 p_business_id: businessId,
                 p_venue_id: data.venue_id,
                 p_area_id: data.area_id,
                 p_device_id: data.clicr_id,
+                p_user_id: userId, // Required by old RPC
                 p_delta: data.delta,
-                p_source: 'clicker' // Standard source for UI buttons
+                p_flow_type: data.delta > 0 ? 'IN' : 'OUT', // Explicitly derive for old RPC
+                p_event_type: 'clicker',
+                p_session_id: data.clicr_id
             });
 
             if (error) throw error;
