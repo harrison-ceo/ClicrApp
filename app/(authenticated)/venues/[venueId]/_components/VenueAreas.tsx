@@ -13,23 +13,26 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function VenueAreas({ venueId }: { venueId: string }) {
-    const { areas, addArea, updateArea } = useApp();
+    const { areas, venues, addArea, updateArea } = useApp();
 
     // Use Standardized Metrics Selector
     const venueAreas = useMemo(() => {
+        const venue = venues.find(v => v.id === venueId);
+        const venueCap = venue?.total_capacity || venue?.default_capacity_total || 0;
+
         return areas
             .filter(a => a.venue_id === venueId)
             .map(area => {
                 const occ = area.current_occupancy || 0;
-                // Prefer DB field 'capacity_max', fall back to legacy 'default_capacity'
-                const cap = area.capacity_max || area.default_capacity || 0;
+                // Prefer DB field 'capacity_max', fall back to legacy 'default_capacity', then Venue Fallback
+                const cap = area.capacity_max || area.default_capacity || venueCap || 0;
                 return {
                     ...area,
                     capacity: cap,
                     percent_full: cap > 0 ? Math.round((occ / cap) * 100) : 0
                 };
             });
-    }, [areas, venueId]);
+    }, [areas, venues, venueId]);
 
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingArea, setEditingArea] = useState<Partial<Area> | null>(null);
