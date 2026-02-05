@@ -439,14 +439,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     // Legacy mapping (Device/Clicr) placeholders...
     const updateClicr = async (clicr: Clicr) => { };
     // Device / Clicr Management (Unified)
-    // Device / Clicr Management (Unified)
     const addDevice = async (device: Device) => {
         const { error } = await supabase.from('devices').insert(device);
         if (error) {
             console.error("Add Device Failed", error);
             setLastError(error.message);
         } else {
-            refreshState();
+            await refreshState();
         }
     };
 
@@ -481,7 +480,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             return { success: false, error: error.message };
         }
 
-        refreshState(); // Refresh to get the new device in list
+        await refreshState(); // Refresh to get the new device in list
         return { success: true };
     };
 
