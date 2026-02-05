@@ -59,7 +59,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                             <Settings className="w-5 h-5" />
                         </Link>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">v1.0.0 • {currentUser.role}</p>
+                    <p className="text-xs text-muted-foreground mt-2">v1.0.0 • {currentUser?.role || 'Loading'}</p>
                 </div>
 
                 <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
