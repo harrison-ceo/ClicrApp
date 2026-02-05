@@ -72,6 +72,7 @@ export default function ClicrPanel({
     }, []);
 
     // --- SPLIT VIEW STATE ---
+    // FORCED P0 RESTORE: Single view only to match demo stability.
     const [layoutMode, setLayoutMode] = useState<'SINGLE' | 'SPLIT'>('SINGLE');
     const [showLayoutMenu, setShowLayoutMenu] = useState(false);
     const [showSplitSetup, setShowSplitSetup] = useState(false);

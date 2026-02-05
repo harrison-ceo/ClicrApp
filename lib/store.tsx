@@ -269,11 +269,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                     // Precise State Update
                     setState(prev => ({
                         ...prev,
-                        areas: prev.areas.map(a =>
-                            a.id === newSnap.area_id
-                                ? { ...a, current_occupancy: newSnap.current_occupancy }
-                                : a
-                        ),
+                        areas: prev.areas.map(a => {
+                            // ZERO-RESET GUARD:
+                            // If incoming snapshot says 0, but we have a non-zero local value that is "recent" (optimization to avoid race), 
+                            // we usually trust DB *unless* we are certain it's a race condition.
+                            // Better rule: Trust DB. But if "newSnap.updated_at" is older than our last update, ignore.
+                            // For simplicty here: Update it unless it feels like an overwrite.
+                            // The real "flash to 0" usually means RLS blocked the read and returned null/default.
+
+                            if (a.id === newSnap.area_id) {
+                                // If payload is missing current_occupancy, do not zero it.
+                                if (typeof newSnap.current_occupancy !== 'number') return a;
+                                return { ...a, current_occupancy: newSnap.current_occupancy };
+                            }
+                            return a;
+                        }),
                         debug: {
                             ...prev.debug,
                             lastSnapshots: [newSnap, ...prev.debug.lastSnapshots].slice(0, 10)

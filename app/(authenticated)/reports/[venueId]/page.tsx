@@ -224,16 +224,8 @@ export default function VenueReportingDashboard() {
         let exportScans = reportData.filteredScans;
 
         if (exportEvents.length === 0 && exportScans.length === 0) {
-            const now = Date.now();
-            const mockEvents: any[] = [];
-            const mockScans: any[] = [];
-            for (let i = 0; i < 50; i++) {
-                const time = now - Math.floor(Math.random() * 5 * 3600000);
-                mockEvents.push({ id: `mock_e_${i}`, venue_id: venue.id, timestamp: time, delta: 1, flow_type: 'IN', event_type: 'TAP', gender: Math.random() > 0.5 ? 'M' : 'F', user_id: 'mock_user' });
-                mockScans.push({ id: `mock_s_${i}`, venue_id: venue.id, timestamp: time, scan_result: 'ACCEPTED', age: 18 + Math.floor(Math.random() * 30), sex: Math.random() > 0.5 ? 'M' : 'F', zip_code: '10001' });
-            }
-            exportEvents = mockEvents;
-            exportScans = mockScans;
+            // Do not inject mock data for authenticated users
+            // Fallthrough to export empty sheet
         }
 
         const vAreas = areas.filter(a => a.venue_id === venueId);
