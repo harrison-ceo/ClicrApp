@@ -8,6 +8,10 @@ export interface TrafficTotals {
     total_out: number;
     net_delta: number;
     event_count: number;
+    manual_in?: number;
+    scan_in?: number;
+    turnarounds?: number;
+    net_adjusted?: number;
 }
 
 export const METRICS = {
@@ -26,7 +30,8 @@ export const METRICS = {
             p_end_ts: window.end
         };
 
-        const { data, error } = await sb.rpc('get_traffic_totals', params);
+        // Use new P0 Reporting RPC
+        const { data, error } = await sb.rpc('get_report_summary', params);
 
         if (error) {
             logError('metrics:getTotals', error.message, params, undefined, businessId);
@@ -34,7 +39,17 @@ export const METRICS = {
         }
 
         if (data && data.length > 0) {
-            return data[0] as TrafficTotals;
+            const r = data[0];
+            return {
+                total_in: Number(r.total_entries_gross),
+                total_out: Number(r.total_exits_gross),
+                net_delta: Number(r.total_entries_gross) - Number(r.total_exits_gross),
+                event_count: 0,
+                manual_in: Number(r.entries_manual),
+                scan_in: Number(r.entries_scan),
+                turnarounds: Number(r.turnarounds_count),
+                net_adjusted: Number(r.net_entries_adjusted)
+            };
         }
 
         return { total_in: 0, total_out: 0, net_delta: 0, event_count: 0 };

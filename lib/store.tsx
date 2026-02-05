@@ -1,11 +1,11 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
-import { Business, Venue, Area, Clicr, CountEvent, User, IDScanEvent, BanRecord, BannedPerson, PatronBan, BanEnforcementEvent, BanAuditLog, Device, CapacityOverride, VenueAuditLog } from './types';
+import { Business, Venue, Area, Clicr, CountEvent, User, IDScanEvent, BanRecord, BannedPerson, PatronBan, BanEnforcementEvent, BanAuditLog, Device, CapacityOverride, VenueAuditLog, DeviceLayout, TurnaroundEvent } from './types';
 import { createClient } from '@/utils/supabase/client';
 import { RealtimeManager } from './realtime-manager';
 import { MUTATIONS } from './core/mutations';
-import { METRICS } from './core/metrics';
+import { METRICS, TrafficTotals } from './core/metrics';
 import { getTodayWindow } from './core/time';
 
 // --- TYPES ---
@@ -23,21 +23,20 @@ export type AppState = {
     currentUser: User | null;
     users: User[];
 
+    // Layouts & Config
+    deviceLayouts: DeviceLayout[];
+    turnarounds: TurnaroundEvent[];
+
     // Core Data
     bans: BanRecord[];
     patrons: BannedPerson[];
     patronBans: PatronBan[];
 
     // Traffic Stats (Business Level Source of Truth)
-    traffic: {
-        total_in: number;
-        total_out: number;
-        net_delta: number;
-        event_count: number;
-    };
+    traffic: TrafficTotals;
 
     // Scoped Traffic Stats (For Clicr Screens)
-    areaTraffic: Record<string, { total_in: number; total_out: number }>;
+    areaTraffic: Record<string, TrafficTotals>;
 
     isLoading: boolean;
     lastError: string | null;
@@ -82,6 +81,11 @@ type AppContextType = AppState & {
     createPatronBan: (person: BannedPerson, ban: PatronBan, log: BanAuditLog) => Promise<void>;
     updatePatronBan: (ban: PatronBan, log: BanAuditLog) => Promise<void>;
     recordBanEnforcement: (event: BanEnforcementEvent) => Promise<void>;
+
+    // P0 New Features
+    upsertDeviceLayout: (layoutMode: 'single' | 'dual', primaryId: string, secondaryId: string | null) => Promise<void>;
+    renameDevice: (deviceId: string, name: string) => Promise<void>;
+    recordTurnaround: (venueId: string, areaId: string, deviceId: string | undefined, count?: number) => Promise<void>;
 };
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -97,6 +101,8 @@ const INITIAL_STATE: AppState = {
     venueAuditLogs: [],
     events: [],
     scanEvents: [],
+    deviceLayouts: [],
+    turnarounds: [],
     currentUser: null,
     users: [],
     bans: [],
@@ -145,6 +151,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 { data: devices },
                 { data: snapshots },
                 { data: events },
+                { data: deviceLayouts },
+                { data: turnarounds },
                 totals
             ] = await Promise.all([
                 supabase.from('businesses').select('*').eq('id', businessId).single(),
@@ -153,6 +161,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 supabase.from('devices').select('*').eq('business_id', businessId).is('deleted_at', null),
                 supabase.from('occupancy_snapshots').select('*').eq('business_id', businessId),
                 supabase.from('occupancy_events').select('*').eq('business_id', businessId).order('created_at', { ascending: false }).limit(50),
+                supabase.from('device_layouts').select('*').eq('business_id', businessId),
+                supabase.from('turnarounds').select('*').eq('business_id', businessId).order('created_at', { ascending: false }).limit(50),
                 METRICS.getTotals(businessId, {}) // Global totals
             ]);
 
@@ -202,6 +212,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 })) as any[],
                 areas: areaWithCounts as any[],
                 devices: (devices || []) as any[],
+                deviceLayouts: (deviceLayouts || []) as any[],
+                turnarounds: (turnarounds || []) as any[],
                 clicrs: mappedClicrs,
                 events: (events || []) as any[],
                 traffic: totals, // Full Sync of Totals
@@ -295,6 +307,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                                 [`area:${e.business_id}:${e.venue_id}:${e.area_id}`]: {
                                     total_in: (prev.areaTraffic[`area:${e.business_id}:${e.venue_id}:${e.area_id}`]?.total_in || 0) + (d > 0 ? d : 0),
                                     total_out: (prev.areaTraffic[`area:${e.business_id}:${e.venue_id}:${e.area_id}`]?.total_out || 0) + (d < 0 ? Math.abs(d) : 0),
+                                    net_delta: (prev.areaTraffic[`area:${e.business_id}:${e.venue_id}:${e.area_id}`]?.net_delta || 0) + d,
+                                    event_count: (prev.areaTraffic[`area:${e.business_id}:${e.venue_id}:${e.area_id}`]?.event_count || 0) + 1
                                 }
                             },
                             debug: { ...prev.debug, lastEvents: [e, ...prev.debug.lastEvents].slice(0, 10) }
@@ -337,6 +351,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 [`area:${bizId}:${event.venue_id}:${event.area_id}`]: {
                     total_in: (prev.areaTraffic[`area:${bizId}:${event.venue_id}:${event.area_id}`]?.total_in || 0) + (d > 0 ? d : 0),
                     total_out: (prev.areaTraffic[`area:${bizId}:${event.venue_id}:${event.area_id}`]?.total_out || 0) + (d < 0 ? Math.abs(d) : 0),
+                    net_delta: (prev.areaTraffic[`area:${bizId}:${event.venue_id}:${event.area_id}`]?.net_delta || 0) + d,
+                    event_count: (prev.areaTraffic[`area:${bizId}:${event.venue_id}:${event.area_id}`]?.event_count || 0) + 1
                 }
             }
         }));
@@ -524,8 +540,59 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    // Legacy mapping (Device/Clicr) placeholders...
-    const updateClicr = async (clicr: Clicr) => { };
+    const updateClicr = async (clicr: Clicr) => {
+        // Sync name changes to Device & Config
+        const { error } = await supabase.from('devices').update({
+            name: clicr.name,
+            config: { button_config: clicr.button_config }
+        }).eq('id', clicr.id);
+        if (error) setLastError(error.message);
+        else refreshState();
+    };
+
+    // P0 FEATURE IMPLEMENTATIONS
+    const upsertDeviceLayout = async (layoutMode: 'single' | 'dual', primaryId: string, secondaryId: string | null) => {
+        if (!state.business?.id) return;
+        const { error } = await supabase.rpc('upsert_device_layout', {
+            p_business_id: state.business.id,
+            p_layout_mode: layoutMode,
+            p_primary_device_id: primaryId,
+            p_secondary_device_id: secondaryId
+        });
+        if (error) setLastError(error.message);
+        else refreshState();
+    };
+
+    const renameDevice = async (deviceId: string, name: string) => {
+        if (!state.business?.id) return;
+        const { error } = await supabase.rpc('update_device_name', {
+            p_business_id: state.business.id,
+            p_device_id: deviceId,
+            p_name: name
+        });
+        if (error) setLastError(error.message);
+        else refreshState();
+    };
+
+    const recordTurnaround = async (venueId: string, areaId: string, deviceId: string | undefined, count: number = 1) => {
+        if (!state.business?.id) return;
+
+        const { error } = await supabase.rpc('add_turnaround', {
+            p_business_id: state.business.id,
+            p_venue_id: venueId,
+            p_area_id: areaId,
+            p_device_id: deviceId,
+            p_count: count
+        });
+
+        if (error) {
+            setLastError(error.message);
+        } else {
+            refreshState();
+            refreshTrafficStats(venueId, areaId);
+        }
+    };
+
     // Device / Clicr Management (Unified)
     const addDevice = async (device: Device) => {
         const { error } = await supabase.from('devices').insert(device);
@@ -603,7 +670,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             addArea, updateArea,
             addClicr, addDevice, updateDevice, deleteDevice,
             addCapacityOverride, addVenueAuditLog,
-            addBan, revokeBan, createPatronBan, updatePatronBan, recordBanEnforcement
+            addBan, revokeBan, createPatronBan, updatePatronBan, recordBanEnforcement,
+            upsertDeviceLayout, renameDevice, recordTurnaround
         }}>
             {children}
         </AppContext.Provider>

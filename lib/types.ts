@@ -302,3 +302,40 @@ export type SupportTicket = {
     updated_at: string;
     messages: SupportMessage[];
 };
+
+export type DeviceLayout = {
+    id: string;
+    business_id: string;
+    owner_user_id: string;
+    layout_mode: 'single' | 'dual';
+    primary_device_id?: string;
+    secondary_device_id?: string;
+    primary_label?: string;
+    secondary_label?: string;
+    updated_at: string;
+};
+
+export type TurnaroundEvent = {
+    id: string;
+    timestamp: number;
+    business_id: string;
+    venue_id?: string;
+    area_id?: string;
+    device_id?: string;
+    count: number;
+    reason?: string;
+    created_by: string;
+};
+
+export type ReportSummary = {
+    total_entries_gross: number;
+    total_exits_gross: number;
+    turnarounds_count: number;
+    net_entries_adjusted: number;
+    entries_manual: number;
+    entries_scan: number;
+    scans_total: number;
+    scans_accepted: number;
+    scans_denied: number;
+    effective_start_ts: string;
+};
