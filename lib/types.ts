@@ -72,7 +72,8 @@ export type Venue = {
     country?: string; // default "US"
     timezone: string;
     status: VenueStatus;
-    default_capacity_total?: number | null;
+    total_capacity?: number; // DB Field matches this
+    default_capacity_total?: number | null; // UI Legacy
     capacity_enforcement_mode: CapacityEnforcementMode;
     last_reset_at?: string; // ISO
     created_at: string;

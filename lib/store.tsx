@@ -173,6 +173,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 return {
                     ...a,
                     current_occupancy: snap?.current_occupancy || 0,
+                    // Ensure capacity_max matches DB or fallback
+                    capacity_max: a.capacity_max || a.default_capacity || 0
                 };
             });
 
