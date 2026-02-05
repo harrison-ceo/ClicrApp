@@ -1,9 +1,4 @@
-import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
-
-export async function GET() {
-    try {
-        const sql = `
+-- 20260204210000_fix_traffic_and_areas_v2.sql
 -- Pipeline 1 & 2 Fixes: Hard Constraints, Authoritative RPC, Area Summary View, RLS Repairs
 
 -- ==========================================
@@ -180,35 +175,3 @@ ON CONFLICT (area_id) DO NOTHING;
 CREATE INDEX IF NOT EXISTS idx_events_biz_created ON occupancy_events(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_venue_created ON occupancy_events(venue_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_area_created ON occupancy_events(area_id, created_at);
-
--- 3. Diagnostic Helper: exec_sql (Original helper, kept for future use)
-CREATE OR REPLACE FUNCTION exec_sql(sql_query text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-    EXECUTE sql_query;
-END;
-$$;
-        `;
-
-        // Try executing via exec_sql if it exists
-        const { error } = await supabaseAdmin.rpc('exec_sql', { sql_query: sql });
-
-        if (error) {
-            console.error("Deploy RPC Error:", error);
-            // Fallback: If exec_sql missing, return SQL for manual execution
-            return NextResponse.json({
-                error: 'Failed to deploy automatically. exec_sql RPC may be missing.',
-                manual_sql: sql,
-                details: error
-            }, { status: 500 });
-        }
-
-        return NextResponse.json({ success: true, message: 'RPCs and RLS Policies Deployed Successfully' });
-
-    } catch (e) {
-        return NextResponse.json({ error: (e as Error).message }, { status: 500 });
-    }
-}

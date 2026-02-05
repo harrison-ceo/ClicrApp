@@ -1,4 +1,5 @@
 import { Area, Venue } from "./types";
+import { createClient } from "@/utils/supabase/client";
 
 export interface TrafficStats {
     total_in: number;
@@ -50,7 +51,6 @@ export const getTrafficTotals = async (scope: Scope, window = getTodayWindow()):
         }
 
         const data = await res.json();
-        console.log(`[Metrics] Traffic Totals (${scope.area_id ? 'Area' : (scope.venue_id ? 'Venue' : 'Biz')}):`, data);
         return data;
     } catch (e) {
         console.error("Metrics Service Error:", e);
@@ -66,12 +66,9 @@ export const getTrafficTotals = async (scope: Scope, window = getTodayWindow()):
     }
 };
 
-// 2. Get Current Occupancy (Selector from Live State or DB)
-// Using State is preferred for Realtime UI.
-// If valid state is passed, calculates from it.
+// 2. Get Current Occupancy
 export const getCurrentOccupancy = (areas: Area[], scope: Scope): number => {
     const relevantAreas = areas.filter(a => {
-        // Business check implied if areas list is already filtered or if we check a.business_id
         if (scope.venue_id && a.venue_id !== scope.venue_id) return false;
         if (scope.area_id && a.id !== scope.area_id) return false;
         return true;
@@ -81,7 +78,6 @@ export const getCurrentOccupancy = (areas: Area[], scope: Scope): number => {
 };
 
 // 3. Get Venue Summaries (Grouped)
-// Useful for Venues Tab
 export const getVenueSummaries = (venues: Venue[], areas: Area[]) => {
     return venues.map(v => ({
         ...v,
@@ -89,23 +85,63 @@ export const getVenueSummaries = (venues: Venue[], areas: Area[]) => {
     }));
 };
 
-// 4. Get Area Summaries (Detail)
+// 4. Get Area Summaries (Detail) - Fixed % Calculation
 export const getAreaSummaries = (areas: Area[], venueId: string) => {
     return areas
         .filter(a => a.venue_id === venueId)
         .map(a => {
             const current = a.current_occupancy || 0;
-            const capacity = a.default_capacity || 0;
-            const percent = capacity > 0 ? Math.round((current / capacity) * 100) : 0;
+            // Prefer capacity from a.capacity if accessible, else default_capacity
+            const capacity = (a as any).capacity || a.default_capacity || 0;
+
+            // Return NULL if capacity is 0 so UI can show "—"
+            const percent = capacity > 0 ? Math.round((current / capacity) * 100) : null;
 
             return {
                 id: a.id,
                 name: a.name,
                 current_occupancy: current,
                 capacity: capacity,
-                percent_full: percent,
+                percent_full: percent, // Can be null now
                 type: a.area_type,
                 mode: a.counting_mode
             };
         });
+};
+
+// 5. ATOMIC WRITES (RPC Wrappers)
+
+export const rpcResetCounts = async (
+    businessId: string,
+    userId: string,
+    scope: 'BUSINESS' | 'VENUE' | 'AREA',
+    targetId: string
+) => {
+    const supabase = createClient();
+    const { error } = await supabase.rpc('reset_business_occupancy_v2', {
+        p_business_id: businessId,
+        p_user_id: userId,
+        p_scope: scope,
+        p_target_id: targetId
+    });
+    if (error) throw error;
+};
+
+export const rpcAddOccupancy = async (
+    businessId: string,
+    venueId: string,
+    areaId: string,
+    delta: number,
+    userId: string
+) => {
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc('add_occupancy_delta_v2', {
+        p_business_id: businessId,
+        p_venue_id: venueId,
+        p_area_id: areaId,
+        p_delta: delta,
+        p_user_id: userId
+    });
+    if (error) throw error;
+    return data && data.length ? data[0] : null; // returns { new_occupancy, event_id }
 };

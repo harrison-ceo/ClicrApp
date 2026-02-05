@@ -55,22 +55,31 @@ export default function AreasPage() {
                     const areaClicrs = clicrs.filter(c => c.area_id === area.id);
                     const venue = venues.find(v => v.id === area.venue_id);
 
-                    // Calculate Live Occupancy from Clicrs
-                    const liveOcc = areaClicrs.reduce((acc, c) => acc + c.current_count, 0);
-                    const percentage = area.capacity_limit ? Math.round((liveOcc / area.capacity_limit) * 100) : 0;
+                    // Calculate Live Occupancy (Source of Truth: Occupancy Snapshot)
+                    const liveOcc = area.current_occupancy || 0;
+
+                    // Capacity & Percentage
+                    const capacity = area.default_capacity || area.capacity_limit || 0;
+                    const percentage = capacity > 0 ? Math.round((liveOcc / capacity) * 100) : null;
 
                     // Status Logic
                     let statusColor = "bg-emerald-500";
                     let statusText = "Normal";
-                    if (percentage > 95) { statusColor = "bg-red-500"; statusText = "Critical"; }
-                    else if (percentage > 80) { statusColor = "bg-amber-500"; statusText = "Near Cap"; }
+
+                    if (percentage !== null) {
+                        if (percentage > 95) { statusColor = "bg-red-500"; statusText = "Critical"; }
+                        else if (percentage > 80) { statusColor = "bg-amber-500"; statusText = "Near Cap"; }
+                    } else {
+                        statusColor = "bg-slate-700";
+                        statusText = "No Cap";
+                    }
 
                     return (
                         <Link key={area.id} href={`/areas/${area.id}`} className="group relative block">
                             <div className="glass-card p-6 rounded-xl relative overflow-hidden transition-all duration-300 group-hover:bg-slate-800/80 group-hover:border-primary/50 group-hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]">
                                 {/* Capacity Bar */}
                                 <div className="absolute top-0 left-0 h-1 w-full bg-slate-800">
-                                    <div className={cn("h-full transition-all duration-500", statusColor)} style={{ width: `${Math.min(percentage, 100)}%` }} />
+                                    <div className={cn("h-full transition-all duration-500", statusColor)} style={{ width: `${Math.min(percentage || 0, 100)}%` }} />
                                 </div>
 
                                 <div className="flex items-start justify-between mb-4 mt-2">
@@ -91,8 +100,8 @@ export default function AreasPage() {
                                         <div className="text-xs text-slate-400">Live Occupancy</div>
                                     </div>
                                     <div className="text-right">
-                                        <div className="text-sm font-medium text-slate-300">/ {area.capacity_limit} Cap</div>
-                                        <div className={cn("text-xs font-bold", statusColor.replace('bg-', 'text-'))}>{percentage}% Full</div>
+                                        <div className="text-sm font-medium text-slate-300">/ {capacity > 0 ? capacity : '—'} Cap</div>
+                                        <div className={cn("text-xs font-bold", statusColor.replace('bg-', 'text-'))}>{percentage !== null ? `${percentage}% Full` : '—'}</div>
                                     </div>
                                 </div>
 
@@ -101,7 +110,7 @@ export default function AreasPage() {
                                         <Layers className="w-4 h-4" />
                                         <span>{areaClicrs.length} Active Clicrs</span>
                                     </div>
-                                    {area.active ?
+                                    {area.is_active || area.active ? // handle both fields
                                         <div className="flex items-center gap-1 text-emerald-400 text-xs"><CheckCircle2 className="w-3 h-3" /> Active</div> :
                                         <div className="flex items-center gap-1 text-slate-500 text-xs"><AlertCircle className="w-3 h-3" /> Inactive</div>
                                     }
@@ -114,4 +123,3 @@ export default function AreasPage() {
         </div>
     );
 }
-

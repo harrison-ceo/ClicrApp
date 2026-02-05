@@ -15,7 +15,7 @@ const VenueCard = ({ venue, areas, events }: { venue: Venue, areas: Area[], even
 
     // Calculate Live Occupancy from SNAPSHOTS (Source of Truth)
     const occupancy = areas.reduce((sum, a) => sum + (a.current_occupancy || 0), 0);
-    const capacity = areas.reduce((sum, a) => sum + (a.default_capacity || 0), 0);
+    const capacity = areas.reduce((sum, a) => sum + ((a as any).capacity || a.default_capacity || 0), 0);
 
     // Fetch Traffic Stats (In/Out)
     useEffect(() => {
@@ -82,7 +82,7 @@ const VenueCard = ({ venue, areas, events }: { venue: Venue, areas: Area[], even
                 {areas.length === 0 && <p className="text-xs text-slate-600 italic">No areas configured.</p>}
                 {areas.map(area => {
                     // Handle fallback
-                    const cap = area.default_capacity || (area as any).capacity || 0;
+                    const cap = (area as any).capacity || area.default_capacity || 0;
                     const occ = area.current_occupancy || 0;
                     const pct = cap > 0 ? (occ / cap) * 100 : 0;
                     const isHigh = pct > 90;
@@ -92,10 +92,10 @@ const VenueCard = ({ venue, areas, events }: { venue: Venue, areas: Area[], even
                             <div className="flex justify-between items-center text-sm mb-1">
                                 <span className="font-medium text-slate-300">{area.name}</span>
                                 <span className={cn("font-mono", isHigh ? "text-red-400 font-bold" : "text-slate-400")}>
-                                    {occ} <span className="text-slate-600 text-xs">/ {cap || '∞'}</span>
+                                    {occ} <span className="text-slate-600 text-xs">/ {cap > 0 ? cap : '∞'}</span>
                                 </span>
                             </div>
-                            {cap ? (
+                            {cap > 0 ? (
                                 <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                     <div
                                         className={cn(
@@ -115,7 +115,7 @@ const VenueCard = ({ venue, areas, events }: { venue: Venue, areas: Area[], even
 };
 
 export default function DashboardPage() {
-    const { business, venues, areas, events, isLoading } = useApp();
+    const { business, venues, areas, events, isLoading, resetCounts } = useApp();
 
     if (isLoading || !business) {
         return <div className="p-8 text-white">Loading dashboard...</div>;
@@ -130,6 +130,17 @@ export default function DashboardPage() {
                     <p className="text-slate-400 mt-1">Real-time overview for <span className="text-primary font-semibold">{business.name}</span></p>
                 </div>
                 <div className="flex items-center gap-3">
+                    <button
+                        onClick={async () => {
+                            if (window.confirm("⚠️ ARE YOU SURE? \n\nThis will reset ALL occupancy counts to 0 for the entire business. This action cannot be undone.")) {
+                                await resetCounts('BUSINESS', business.id);
+                            }
+                        }}
+                        className="px-4 py-2 bg-red-900/50 hover:bg-red-900 text-red-200 border border-red-800/50 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+                    >
+                        Reset All Counts
+                    </button>
+
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 text-emerald-400 rounded-full text-xs font-medium border border-emerald-500/20">
                         <span className="relative flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>

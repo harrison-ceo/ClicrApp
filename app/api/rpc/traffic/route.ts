@@ -14,7 +14,7 @@ export async function POST(request: Request) {
         const end = end_ts ? new Date(end_ts).toISOString() : new Date().toISOString();
 
         // 1. Try RPC Approach (Optimal)
-        const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('get_traffic_totals', {
+        const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('get_traffic_totals_v3', {
             p_business_id: business_id,
             p_venue_id: venue_id || null,
             p_area_id: area_id || null,
@@ -38,6 +38,8 @@ export async function POST(request: Request) {
         // 2. Fallback: Aggregation in Node (Robustness)
         console.warn("Traffic RPC failed or missing, falling back to local aggregation:", rpcError?.message);
 
+        console.log(`[Traffic Fallback] Querying business=${business_id} start=${start} end=${end}`);
+
         let query = supabaseAdmin
             .from('occupancy_events')
             .select('delta, flow_type, source')
@@ -49,6 +51,8 @@ export async function POST(request: Request) {
         if (area_id) query = query.eq('area_id', area_id);
 
         const { data: events, error } = await query;
+
+        console.log(`[Traffic Fallback] Found ${events?.length ?? 0} events. Error:`, error);
 
         if (error) throw error;
 

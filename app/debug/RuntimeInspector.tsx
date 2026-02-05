@@ -2,203 +2,274 @@
 
 import React, { useState } from 'react';
 import { useApp } from '@/lib/store';
-import { getTrafficTotals, getTodayWindow, getVenueSummaries } from '@/lib/metrics-service';
+import { getTrafficTotals, getTodayWindow } from '@/lib/metrics-service';
 import { createClient } from '@/utils/supabase/client';
 
 export default function RuntimeInspector() {
-    const { debug, business, venues, areas, clicrs, events, scanEvents, lastError, currentUser, devices } = useApp();
-    const [manualTotals, setManualTotals] = useState<any>(null);
-    const [manualAreaSummaries, setManualAreaSummaries] = useState<any>(null);
+    const { business, venues, currentUser, areas } = useApp();
+    const [truthA, setTruthA] = useState<any>(null);
+    const [truthB, setTruthB] = useState<any>(null);
+    const [truthC, setTruthC] = useState<any>(null);
+    const [deployResult, setDeployResult] = useState<any>(null);
 
-    const testTrafficTotals = async () => {
-        if (!business) return;
+    // --- TRUTH CARD LOGIC ---
+
+    const loadTruthCardA = async () => {
+        const sb = createClient();
+        if (!business?.id) return;
+
+        // 1. Fetch Last 50 Events
+        const { data: events, error } = await sb
+            .from('occupancy_events')
+            .select('id, created_at, delta, business_id, venue_id, area_id, source, device_id')
+            .eq('business_id', business.id)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        // 2. Fetch Counts (Biz Level)
         const w = getTodayWindow();
-        const totals = await getTrafficTotals({ business_id: business.id }, w);
-        setManualTotals({ params: { business_id: business.id, window: w }, result: totals });
+        const { count: bizCount } = await sb
+            .from('occupancy_events')
+            .select('*', { count: 'exact', head: true })
+            .eq('business_id', business.id)
+            .gte('created_at', w.start)
+            .lte('created_at', w.end);
+
+        setTruthA({
+            events: events || [],
+            error: error?.message,
+            bizCount,
+            lastRefreshed: new Date().toISOString()
+        });
     };
 
-    const testAreaSummaries = async () => {
-        if (!venues.length) return;
-        // Test first venue
-        const v = venues[0];
-        const sums = getVenueSummaries([v], areas);
-        setManualAreaSummaries(sums);
-    };
+    const loadTruthCardB = async () => {
+        if (!business?.id) return;
+        const w = getTodayWindow();
+        const params = {
+            p_business_id: business.id,
+            p_venue_id: null,
+            p_area_id: null,
+            p_start_ts: w.start,
+            p_end_ts: w.end
+        };
 
-    return (
-        <div className="space-y-8 text-sm">
-
-            {/* A. Environment */}
-            <section className="bg-slate-950 p-6 rounded-lg shadow-sm border border-slate-800 text-slate-300">
-                <h2 className="text-lg font-bold mb-4 text-white border-b border-slate-700 pb-2">A. Environment</h2>
-                <div className="grid grid-cols-[140px_1fr] gap-2 font-mono text-xs">
-                    <div className="text-slate-500">Commit SHA:</div>
-                    <div>{process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || 'DEV_BUILD'}</div>
-                    <div className="text-slate-500">Supabase URL:</div>
-                    <div>{process.env.NEXT_PUBLIC_SUPABASE_URL}</div>
-                    <div className="text-slate-500">Timestamp:</div>
-                    <div>{new Date().toISOString()}</div>
-                </div>
-            </section>
-
-            {/* B. Tenant Context */}
-            <section className="bg-slate-950 p-6 rounded-lg shadow-sm border border-slate-800 text-slate-300">
-                <h2 className="text-lg font-bold mb-4 text-white border-b border-slate-700 pb-2">B. Tenant Context</h2>
-                <div className="grid grid-cols-[140px_1fr] gap-2 font-mono text-xs">
-                    <div className="text-slate-500">User ID:</div>
-                    <div>{currentUser?.id || 'unauthenticated'}</div>
-                    <div className="text-slate-500">Role:</div>
-                    <div>{currentUser?.role || '-'}</div>
-                    <div className="text-slate-500">Business ID:</div>
-                    <div>{business?.id || 'None'} <span className="text-slate-500">({business?.name})</span></div>
-                    <div className="text-slate-500">Venue Count:</div>
-                    <div>{venues.length}</div>
-                </div>
-            </section>
-
-            {/* C. Areas Tab Diagnostics */}
-            <section className="bg-slate-950 p-6 rounded-lg shadow-sm border border-slate-800 text-slate-300">
-                <div className="flex justify-between items-center border-b border-slate-700 pb-2 mb-4">
-                    <h2 className="text-lg font-bold text-white">C. Areas Tab Diagnostics</h2>
-                    <button onClick={testAreaSummaries} className="bg-indigo-600 px-3 py-1 rounded text-white text-xs hover:bg-indigo-500">Test Calculation</button>
-                </div>
-
-                <div className="font-mono text-xs">
-                    <div className="mb-4">
-                        <div className="text-slate-500 mb-1">Loaded Areas ({areas.length}):</div>
-                        <div className="max-h-40 overflow-auto bg-slate-900 p-2 rounded">
-                            {areas.map(a => (
-                                <div key={a.id} className="flex justify-between border-b last:border-0 border-slate-800 py-1">
-                                    <span>{a.name} ({a.id.slice(0, 6)})</span>
-                                    <span className={a.current_occupancy !== undefined ? "text-emerald-400" : "text-red-500"}>
-                                        Occ: {a.current_occupancy ?? 'NULL'}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                    {manualAreaSummaries && (
-                        <div className="mt-4 border-t border-slate-700 pt-2">
-                            <div className="text-slate-500 mb-1">Manual Test Result:</div>
-                            <pre className="bg-slate-900 p-2 rounded overflow-auto">{JSON.stringify(manualAreaSummaries, null, 2)}</pre>
-                        </div>
-                    )}
-                </div>
-            </section>
-
-            {/* D. Traffic Totals Diagnostics */}
-            <section className="bg-slate-950 p-6 rounded-lg shadow-sm border border-slate-800 text-slate-300">
-                <div className="flex justify-between items-center border-b border-slate-700 pb-2 mb-4">
-                    <h2 className="text-lg font-bold text-white">D. Traffic Totals Diagnostics</h2>
-                    <button onClick={testTrafficTotals} className="bg-indigo-600 px-3 py-1 rounded text-white text-xs hover:bg-indigo-500">Test RPC</button>
-                </div>
-
-                <div className="font-mono text-xs space-y-4">
-                    <div>
-                        <div className="text-slate-500">Time Window (Local):</div>
-                        <div>Start: {getTodayWindow().start}</div>
-                        <div>End:   {getTodayWindow().end}</div>
-                    </div>
-
-                    <div>
-                        <div className="text-slate-500 mb-1">Last 10 Events:</div>
-                        <div className="max-h-40 overflow-auto bg-slate-900 p-2 rounded">
-                            {events.slice(0, 10).map(e => (
-                                <div key={e.id} className="border-b last:border-0 border-slate-800 py-1 flex gap-2">
-                                    <span className="text-slate-500">{new Date(e.timestamp).toLocaleTimeString()}</span>
-                                    <span className={e.delta > 0 ? "text-emerald-400" : "text-amber-400"}>{e.delta > 0 ? '+' : ''}{e.delta}</span>
-                                    <span className="text-slate-600">{e.venue_id?.slice(0, 4)}... / {e.area_id?.slice(0, 4)}...</span>
-                                    <span className="text-slate-400">{e.event_type}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {manualTotals && (
-                        <div className="mt-4 border-t border-slate-700 pt-2">
-                            <div className="text-slate-500 mb-1">RPC Result:</div>
-                            <pre className="bg-slate-900 p-2 rounded overflow-auto">{JSON.stringify(manualTotals, null, 2)}</pre>
-                        </div>
-                    )}
-                </div>
-            </section>
-
-            {/* E. Devices / Delete Diagnostics */}
-            <section className="bg-slate-950 p-6 rounded-lg shadow-sm border border-slate-800 text-slate-300">
-                <h2 className="text-lg font-bold mb-4 text-white border-b border-slate-700 pb-2">E. Devices (Clicrs)</h2>
-                <div className="font-mono text-xs max-h-40 overflow-auto bg-slate-900 p-2 rounded">
-                    {devices.map(d => (
-                        <div key={d.id} className="flex justify-between border-b last:border-0 border-slate-800 py-1">
-                            <span>{d.device_name} ({d.id.slice(0, 6)})</span>
-                            <span>{d.status} / {d.direction_mode}</span>
-                        </div>
-                    ))}
-                    {clicrs.map(c => (
-                        <div key={c.id} className="flex justify-between border-b last:border-0 border-slate-800 py-1 opacity-70">
-                            <span>[LEGACY] {c.name} ({c.id.slice(0, 6)})</span>
-                            <span>Active: {String(c.active)}</span>
-                        </div>
-                    ))}
-                </div>
-            </section>
-            {/* F. RLS / Connectivity Probes (NEW) */}
-            <section className="bg-slate-950 p-6 rounded-lg shadow-sm border border-slate-800 text-slate-300">
-                <h2 className="text-lg font-bold mb-4 text-white border-b border-slate-700 pb-2">F. Connectivity & RLS Probes</h2>
-                <div className="space-y-4">
-                    <ProbeButton label="Test Read Areas (Raw)" table="areas" />
-                    <ProbeButton label="Test Read Occupancy Events (Raw)" table="occupancy_events" limit={5} />
-                    <ProbeButton label="Test Read Snapshots (Raw)" table="occupancy_snapshots" />
-                    <ProbeButton label="Test Read Devices (Raw)" table="devices" />
-                </div>
-            </section>
-        </div>
-    );
-}
-
-function ProbeButton({ label, table, limit = 10 }: { label: string, table: string, limit?: number }) {
-    const [result, setResult] = useState<any>(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    const runProbe = async () => {
-        setLoading(true);
-        setError(null);
-        setResult(null);
         try {
             const sb = createClient();
-            const { data, error } = await sb.from(table).select('*').limit(limit);
+            const { data, error } = await sb.rpc('get_traffic_totals_v3', params);
 
-            if (error) {
-                setError(error.message || JSON.stringify(error));
-            } else {
-                setResult(data);
-            }
+            setTruthB({
+                params,
+                result: data ? data[0] : null,
+                error: error?.message
+            });
         } catch (e) {
-            setError((e as Error).message);
-        } finally {
-            setLoading(false);
+            setTruthB({ error: (e as Error).message });
+        }
+    };
+
+    const loadTruthCardC = async () => {
+        if (!business?.id) return;
+        const sb = createClient();
+
+        // 1. Raw Areas
+        // Fix: Use venues connected to business to filter areas, as we might not have area.business_id
+        const venueIds = venues.map(v => v.id);
+        const { data: rawAreas, error: areaErr } = await sb
+            .from('areas')
+            .select('*')
+            .in('venue_id', venueIds)
+            .limit(10);
+
+        // 2. Raw Snapshots
+        const { data: rawSnaps, error: snapErr } = await sb
+            .from('occupancy_snapshots')
+            .select('*')
+            .eq('business_id', business.id)
+            .limit(10);
+
+        setTruthC({
+            areas: { count: rawAreas?.length, sample: rawAreas?.slice(0, 5), error: areaErr?.message },
+            snapshots: { count: rawSnaps?.length, sample: rawSnaps?.slice(0, 5), error: snapErr?.message },
+            rlsSuspicion: (rawAreas?.length === 0 && !areaErr) || (rawSnaps?.length === 0 && !snapErr)
+        });
+    };
+
+    const deployFixes = async () => {
+        setDeployResult({ loading: true });
+        try {
+            const res = await fetch('/api/admin/deploy-rpc');
+            const json = await res.json();
+            setDeployResult(json);
+        } catch (e) {
+            setDeployResult({ error: (e as Error).message });
         }
     };
 
     return (
-        <div className="border border-slate-800 rounded p-4 bg-slate-900/50">
-            <div className="flex justify-between items-center mb-2">
-                <span className="font-mono text-xs text-slate-400">{label}</span>
-                <button onClick={runProbe} disabled={loading} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded">
-                    {loading ? 'Running...' : 'Run Probe'}
-                </button>
+        <div className="space-y-8 text-sm text-slate-200">
+            {/* ADMIN CONTROLS */}
+            <div className="bg-slate-950 border border-slate-800 p-4 rounded flex justify-between items-center">
+                <h2 className="text-xl font-bold text-white">🕵️‍♂️ DEBUGGING CONSOLE</h2>
+                <div className="flex gap-2">
+                    <button onClick={deployFixes} className="bg-red-900 border border-red-700 text-red-100 px-3 py-1 rounded hover:bg-red-800">
+                        {deployResult?.loading ? 'Deploying...' : '⚠️ RE-DEPLOY RPC/RLS'}
+                    </button>
+                </div>
             </div>
-            {error && <div className="text-red-400 text-xs font-mono bg-red-950/30 p-2 rounded">Error: {error}</div>}
-            {result && (
-                <div className="text-green-400 text-xs font-mono">
-                    <div>Found {result.length} rows.</div>
-                    {result.length > 0 && (
-                        <pre className="mt-2 max-h-40 overflow-auto bg-black p-2 rounded text-[10px] text-slate-300">
-                            {JSON.stringify(result, null, 2)}
-                        </pre>
+
+            {deployResult && (
+                <div className="bg-slate-900 p-4 rounded border border-slate-700 font-mono text-xs">
+                    <div className={deployResult.success ? "text-emerald-400" : "text-red-400"}>
+                        {deployResult.success ? "DEPLOY SUCCESS" : "DEPLOY FAILED: " + deployResult.error}
+                    </div>
+                    {deployResult.manual_sql && (
+                        <div className="mt-2 text-amber-500 select-all whitespace-pre-wrap">
+                            {deployResult.manual_sql}
+                        </div>
                     )}
                 </div>
             )}
+
+            {/* TRUTH CARD A: DB EVENTS */}
+            <section className="bg-slate-950 border border-slate-700 rounded-lg overflow-hidden">
+                <div className="bg-slate-900 px-4 py-2 border-b border-slate-700 flex justify-between items-center">
+                    <h3 className="font-bold text-white">TRUTH CARD A — DB EVENT TRUTH</h3>
+                    <button onClick={loadTruthCardA} className="bg-indigo-600 px-3 py-1 rounded text-white text-xs">REFRESH</button>
+                </div>
+                <div className="p-4 font-mono text-xs">
+                    {truthA ? (
+                        <>
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div className="bg-slate-900 p-2 rounded">
+                                    <div className="text-slate-500">Business Events Today:</div>
+                                    <div className="text-2xl font-bold text-white">{truthA.bizCount ?? 'Loading...'}</div>
+                                </div>
+                                <div className="bg-slate-900 p-2 rounded">
+                                    <div className="text-slate-500">Last Refreshed:</div>
+                                    <div className="text-emerald-400">{new Date(truthA.lastRefreshed).toLocaleTimeString()}</div>
+                                </div>
+                            </div>
+
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="text-slate-500 border-b border-slate-800">
+                                        <th className="py-1">Created At</th>
+                                        <th>Delta</th>
+                                        <th>Area ID</th>
+                                        <th>Source</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {truthA.events?.map((e: any) => (
+                                        <tr key={e.id} className="border-b border-slate-800 hover:bg-slate-900 transition-colors">
+                                            <td className="py-1 text-slate-400">{new Date(e.created_at).toLocaleTimeString()}</td>
+                                            <td className={e.delta > 0 ? "text-emerald-500 font-bold" : "text-amber-500 font-bold"}>
+                                                {e.delta > 0 ? `+${e.delta}` : e.delta}
+                                            </td>
+                                            <td className="text-slate-600" title={e.area_id}>{e.area_id?.slice(0, 6)}...</td>
+                                            <td className="text-slate-500">{e.source}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {truthA.error && <div className="text-red-500 mt-2">Error: {truthA.error}</div>}
+                        </>
+                    ) : (
+                        <div className="text-slate-500 italic">Click Refresh to load DB Truth...</div>
+                    )}
+                </div>
+            </section>
+
+            {/* TRUTH CARD B: RPC TOTALS */}
+            <section className="bg-slate-950 border border-slate-700 rounded-lg overflow-hidden">
+                <div className="bg-slate-900 px-4 py-2 border-b border-slate-700 flex justify-between items-center">
+                    <h3 className="font-bold text-white">TRUTH CARD B — TOTALS TRUTH (RPC V3)</h3>
+                    <button onClick={loadTruthCardB} className="bg-indigo-600 px-3 py-1 rounded text-white text-xs">REFRESH</button>
+                </div>
+                <div className="p-4 font-mono text-xs">
+                    {truthB ? (
+                        <>
+                            <div className="mb-4 bg-slate-900 p-2 rounded text-slate-400">
+                                <div><strong className="text-slate-300">RPC:</strong> get_traffic_totals_v3</div>
+                                <div><strong className="text-slate-300">Start:</strong> {truthB.params.p_start_ts}</div>
+                                <div><strong className="text-slate-300">End:</strong> {truthB.params.p_end_ts}</div>
+                            </div>
+
+                            {truthB.result ? (
+                                <div className="grid grid-cols-4 gap-4 text-center">
+                                    <div className="bg-emerald-900/20 p-2 rounded border border-emerald-900">
+                                        <div className="text-slate-500">Total In</div>
+                                        <div className="text-2xl font-bold text-emerald-400">{truthB.result.total_in}</div>
+                                    </div>
+                                    <div className="bg-amber-900/20 p-2 rounded border border-amber-900">
+                                        <div className="text-slate-500">Total Out</div>
+                                        <div className="text-2xl font-bold text-amber-400">{truthB.result.total_out}</div>
+                                    </div>
+                                    <div className="bg-blue-900/20 p-2 rounded border border-blue-900">
+                                        <div className="text-slate-500">Net Delta</div>
+                                        <div className="text-2xl font-bold text-blue-400">{truthB.result.net_delta}</div>
+                                    </div>
+                                    <div className="bg-slate-800 p-2 rounded border border-slate-700">
+                                        <div className="text-slate-500">Events</div>
+                                        <div className="text-xl font-bold text-white">{truthB.result.event_count}</div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-amber-500">RPC returned NO rows (NULL result).</div>
+                            )}
+
+                            {truthB.error && <div className="text-red-500 mt-2 font-bold">RPC Error: {truthB.error}</div>}
+                        </>
+                    ) : (
+                        <div className="text-slate-500 italic">Click Refresh to test RPC...</div>
+                    )}
+                </div>
+            </section>
+
+            {/* TRUTH CARD C: AREAS & SNAPSHOTS */}
+            <section className="bg-slate-950 border border-slate-700 rounded-lg overflow-hidden">
+                <div className="bg-slate-900 px-4 py-2 border-b border-slate-700 flex justify-between items-center">
+                    <h3 className="font-bold text-white">TRUTH CARD C — AREAS TAB TRUTH</h3>
+                    <button onClick={loadTruthCardC} className="bg-indigo-600 px-3 py-1 rounded text-white text-xs">REFRESH</button>
+                </div>
+                <div className="p-4 font-mono text-xs">
+                    {truthC ? (
+                        <>
+                            {truthC.rlsSuspicion && (
+                                <div className="bg-red-950/50 border border-red-500 text-red-200 p-2 mb-4 rounded font-bold">
+                                    ⚠️ RLS SUSPICION: Queries returned 0 rows but no error. Check Policies!
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <h4 className="text-indigo-400 font-bold mb-2">Areas Table ({truthC.areas.count})</h4>
+                                    {truthC.areas.error ? (
+                                        <div className="text-red-500">{truthC.areas.error}</div>
+                                    ) : (
+                                        <pre className="bg-black p-2 rounded h-40 overflow-auto text-[10px] text-slate-400">
+                                            {JSON.stringify(truthC.areas.sample, null, 2)}
+                                        </pre>
+                                    )}
+                                </div>
+                                <div>
+                                    <h4 className="text-indigo-400 font-bold mb-2">Snapshots Table ({truthC.snapshots.count})</h4>
+                                    {truthC.snapshots.error ? (
+                                        <div className="text-red-500">{truthC.snapshots.error}</div>
+                                    ) : (
+                                        <pre className="bg-black p-2 rounded h-40 overflow-auto text-[10px] text-slate-400">
+                                            {JSON.stringify(truthC.snapshots.sample, null, 2)}
+                                        </pre>
+                                    )}
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-slate-500 italic">Click Refresh to inspect Areas...</div>
+                    )}
+                </div>
+            </section>
         </div>
     );
 }

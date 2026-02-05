@@ -179,6 +179,14 @@
       "status": "ACTIVE",
       "current_count": 0,
       "battery_level": 100
+    },
+    {
+      "id": "33545f51-9a2a-46eb-93fd-8e4463220f17",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "name": "Front door",
+      "flow_mode": "IN_ONLY",
+      "current_count": 5,
+      "active": true
     }
   ],
   "devices": [
@@ -198,6 +206,76 @@
   "capacityOverrides": [],
   "venueAuditLogs": [],
   "events": [
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "33545f51-9a2a-46eb-93fd-8e4463220f17",
+      "delta": 1,
+      "flow_type": "IN",
+      "gender": "M",
+      "event_type": "clicker",
+      "idempotency_key": "0.pnlb98v9c89",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "user_id": "37436576-7afe-4386-924a-228f6a319d57"
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "33545f51-9a2a-46eb-93fd-8e4463220f17",
+      "delta": 1,
+      "flow_type": "IN",
+      "gender": "M",
+      "event_type": "clicker",
+      "idempotency_key": "0.zb75lihgup7",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "user_id": "37436576-7afe-4386-924a-228f6a319d57"
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "33545f51-9a2a-46eb-93fd-8e4463220f17",
+      "delta": 1,
+      "flow_type": "IN",
+      "gender": "M",
+      "event_type": "clicker",
+      "idempotency_key": "0.0v0juzbyasd",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "user_id": "37436576-7afe-4386-924a-228f6a319d57"
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "33545f51-9a2a-46eb-93fd-8e4463220f17",
+      "delta": 1,
+      "flow_type": "IN",
+      "gender": "M",
+      "event_type": "clicker",
+      "idempotency_key": "0.jk8chqbpya",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "user_id": "37436576-7afe-4386-924a-228f6a319d57"
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "33545f51-9a2a-46eb-93fd-8e4463220f17",
+      "delta": 1,
+      "flow_type": "IN",
+      "gender": "M",
+      "event_type": "clicker",
+      "idempotency_key": "0.plpauuo5sgb",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "user_id": "37436576-7afe-4386-924a-228f6a319d57"
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
+      "clicr_id": "qa_device_001",
+      "delta": 1,
+      "flow_type": "IN",
+      "event_type": "qa_test",
+      "business_id": "7c9a5e3f-2ef2-4fe0-a861-94641f0975a3",
+      "timestamp": 1770238549503
+    },
     {
       "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
       "area_id": "84e1cd68-b212-42fd-b5a6-e208ee3218d4",
@@ -259,7 +337,88 @@
       "timestamp": 1770185033652
     }
   ],
-  "scanEvents": [],
+  "scanEvents": [
+    {
+      "venue_id": "ven_001",
+      "scan_result": "ACCEPTED",
+      "age": 21,
+      "age_band": "21+",
+      "sex": "M",
+      "zip_code": "00000",
+      "id": "vvu5jp",
+      "timestamp": 1770260971902
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "scan_result": "ACCEPTED",
+      "age": 21,
+      "age_band": "21+",
+      "sex": "M",
+      "zip_code": "00000",
+      "id": "kqykku",
+      "timestamp": 1770260971460
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "scan_result": "ACCEPTED",
+      "age": 21,
+      "age_band": "21+",
+      "sex": "M",
+      "zip_code": "00000",
+      "id": "jwv858",
+      "timestamp": 1770260970996
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "scan_result": "ACCEPTED",
+      "age": 21,
+      "age_band": "21+",
+      "sex": "M",
+      "zip_code": "00000",
+      "id": "g0ci2g",
+      "timestamp": 1770260970443
+    },
+    {
+      "venue_id": "ven_001",
+      "scan_result": "ACCEPTED",
+      "age": 21,
+      "age_band": "21+",
+      "sex": "M",
+      "zip_code": "00000",
+      "id": "otwnyj",
+      "timestamp": 1770260826775
+    },
+    {
+      "venue_id": "ven_001",
+      "scan_result": "ACCEPTED",
+      "age": 21,
+      "age_band": "21+",
+      "sex": "M",
+      "zip_code": "00000",
+      "id": "6vpa",
+      "timestamp": 1770260822581
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "scan_result": "ACCEPTED",
+      "age": 21,
+      "age_band": "21+",
+      "sex": "M",
+      "zip_code": "00000",
+      "id": "f92icb",
+      "timestamp": 1770260822078
+    },
+    {
+      "venue_id": "620eb0ce-d616-4cb8-9fda-541e41030144",
+      "scan_result": "ACCEPTED",
+      "age": 21,
+      "age_band": "21+",
+      "sex": "M",
+      "zip_code": "00000",
+      "id": "7xafm",
+      "timestamp": 1770260821347
+    }
+  ],
   "currentUser": {
     "id": "usr_owner",
     "name": "Harrison Owner",
@@ -324,7 +483,9 @@
       "role": "OWNER",
       "assigned_venue_ids": [],
       "assigned_area_ids": [],
-      "assigned_clicr_ids": []
+      "assigned_clicr_ids": [
+        "33545f51-9a2a-46eb-93fd-8e4463220f17"
+      ]
     }
   ],
   "bans": [],

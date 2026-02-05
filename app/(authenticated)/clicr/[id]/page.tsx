@@ -260,7 +260,7 @@ export default function ClicrCounterPage() {
     // if (!clicr) return <div className="p-8 text-white">Clicr not found</div>;
 
     const handleGenderTap = (gender: 'M' | 'F', delta: number) => {
-        if (!clicr) return;
+        if (!clicr || !venueId) return;
         // ENFORCEMENT CHECK
         if (delta > 0) {
             const { maxCapacity: maxCap, mode } = getVenueCapacityRules(venue);
@@ -296,7 +296,7 @@ export default function ClicrCounterPage() {
 
         // 1. Record the Count Event (Changes Occupancy) with Gender
         recordEvent({
-            venue_id: venueId || 'ven_001',
+            venue_id: venueId,
             area_id: clicr.area_id,
             clicr_id: clicr.id,
             delta: delta,
@@ -318,7 +318,7 @@ export default function ClicrCounterPage() {
 
         if (delta > 0 && !pendingScan) {
             recordScan({
-                venue_id: venueId || 'ven_001',
+                venue_id: venueId,
                 scan_result: 'ACCEPTED',
                 age: 21,
                 age_band: '21+',
@@ -329,10 +329,10 @@ export default function ClicrCounterPage() {
     };
 
     const handleBulkSubmit = () => {
-        if (!clicr) return;
+        if (!clicr || !venueId) return;
         if (bulkValue !== 0) {
             recordEvent({
-                venue_id: venueId || 'ven_001',
+                venue_id: venueId,
                 area_id: clicr.area_id,
                 clicr_id: clicr.id,
                 delta: bulkValue,
@@ -370,6 +370,7 @@ export default function ClicrCounterPage() {
     // Unified Scan Processor (The Brain)
     // Unified Scan Processor (The Brain)
     const processScan = async (parsed: ReturnType<typeof parseAAMVA>, rawData?: string) => {
+        if (!venueId) return;
         // 1. API Verification (Preferred for Hardware Scans)
         if (rawData) {
             try {
@@ -378,8 +379,8 @@ export default function ClicrCounterPage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         scan_data: rawData,
-                        business_id: venue?.business_id || 'biz_001',
-                        venue_id: venueId || 'ven_001',
+                        business_id: venue?.business_id,
+                        venue_id: venueId,
                         area_id: clicr?.area_id
                     })
                 });
@@ -418,11 +419,11 @@ export default function ClicrCounterPage() {
 
         // 2. Fallback (Simulation or API Failure or Manual Parsing)
         // We use the NEW scan-service logic here
-        const result = evaluateScan(parsed, patrons, patronBans, venueId || 'ven_001');
+        const result = evaluateScan(parsed, patrons, patronBans, venueId);
 
         // ... Local Logic (Same as before) ...
         const scanEvent: Omit<IDScanEvent, 'id' | 'timestamp'> = {
-            venue_id: venueId || 'ven_001',
+            venue_id: venueId,
             scan_result: result.status === 'ACCEPTED' ? 'ACCEPTED' : 'DENIED',
             age: result.age || 0,
             age_band: result.age ? (result.age >= 21 ? '21+' : 'Under 21') : 'Unknown',
@@ -461,7 +462,7 @@ export default function ClicrCounterPage() {
                 }
 
                 recordEvent({
-                    venue_id: venueId || 'ven_001',
+                    venue_id: venueId,
                     area_id: clicr?.area_id || 'area_001',
                     clicr_id: clicr?.id || 'dev_001',
                     delta: 1,
