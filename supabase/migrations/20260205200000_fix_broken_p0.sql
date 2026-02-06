@@ -3,7 +3,7 @@
 -- 2. Fix RPC flow_type casting error (The root cause of "Click failing")
 -- 3. Clean duplicates in snapshots (The root cause of "Blink to 0")
 
-BEGIN;
+-- Transaction block removed for RPC execution compatibility
 
 -- ==============================================================================
 -- 1. RLS FIX (The Keyston)
@@ -114,4 +114,4 @@ ALTER TABLE occupancy_snapshots DROP CONSTRAINT IF EXISTS occupancy_snapshots_pk
 ALTER TABLE occupancy_snapshots ADD PRIMARY KEY (area_id);
 
 
-COMMIT;
+-- Transaction block removed for RPC execution compatibility

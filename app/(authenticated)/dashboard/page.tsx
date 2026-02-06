@@ -11,27 +11,19 @@ import { Venue, Area, CountEvent } from '@/lib/types';
 
 // Sub-component for individual venue stats
 const VenueCard = ({ venue, areas, events }: { venue: Venue, areas: Area[], events: CountEvent[] }) => {
-    const [stats, setStats] = useState({ total_in: 0, total_out: 0 });
-    const [loading, setLoading] = useState(true);
+    // P0 UPDATED: Use centralized venueMetrics (Live & Synced)
+    const { venueMetrics } = useApp();
+    const stats = venueMetrics[venue.id] || { total_in: 0, total_out: 0, current_occupancy: 0 };
 
     // Calculate Live Occupancy from SNAPSHOTS (Source of Truth)
+    // Note: 'areas' prop comes from store, which is updated by snapshots realtime.
+    // We can also use 'stats.current_occupancy' from the RPC summary, 
+    // BUT 'areas' array is updated via realtime snapshots map in store.
+    // Let's rely on 'stats.current_occupancy' which we are ALSO keeping in sync via onEvent? 
+    // NO, 'stats' (metrics) current_occupancy needs to be updated by snapshots too in store.
+    // Simplest: Sum the areas array provided, it IS the live snapshot state.
     const occupancy = areas.reduce((sum, a) => sum + (a.current_occupancy || 0), 0);
     const capacity = areas.reduce((sum, a) => sum + ((a as any).capacity || a.default_capacity || 0), 0);
-
-    // Fetch Traffic Stats (In/Out)
-    useEffect(() => {
-        const fetchStats = async () => {
-            if (!venue.business_id) return;
-            try {
-                const data = await METRICS.getTotals(venue.business_id, { venueId: venue.id }, getTodayWindow());
-                setStats(data);
-                setLoading(false);
-            } catch (e) {
-                console.error("Venue stats error", e);
-            }
-        };
-        fetchStats();
-    }, [venue.id, venue.business_id, events]); // Re-fetch on global events change (or filter events upstream)
 
     return (
         <div className="glass-panel p-6 rounded-2xl border border-slate-800 hover:border-slate-700 transition-colors">

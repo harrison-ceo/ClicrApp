@@ -117,23 +117,16 @@ export default function ClicrPanel({
      * - Source: occupancy_events (via RPC)
      * - Scope: Filtered by Area if device is assigned, else Venue.
      */
-    const { areaTraffic, refreshTrafficStats } = useApp();
-    const scopeKey = (venue?.business_id && venueId && clicr?.area_id)
-        ? `area:${venue.business_id}:${venueId}:${clicr.area_id}`
-        : null;
+    // TRAFFIC STATS (IN / OUT)
+    // P0 UPDATED: Use centralized areaMetrics
+    const { areaMetrics } = useApp();
 
-    // Subscribe to store updates
-    const areaStats = scopeKey ? areaTraffic[scopeKey] : null;
+    // Get stats for this Clicr's Area
+    const metrics = clicr?.area_id ? areaMetrics[clicr.area_id] : null;
 
-    useEffect(() => {
-        if (!venueId || !venue?.business_id || !clicr?.area_id) return;
-
-        // Initial Fetch -> Populates Store
-        refreshTrafficStats(venueId, clicr.area_id);
-    }, [venueId, venue?.business_id, clicr?.area_id]); // Run once per scope change
-
-    const globalIn = areaStats?.total_in;
-    const globalOut = areaStats?.total_out;
+    const globalIn = metrics?.total_in;
+    const globalOut = metrics?.total_out;
+    // const currentOccupancy = metrics?.current_occupancy; // Use snapshot instead for latency safety
 
     // DEBUG PANEL STATE
     const [showDebug, setShowDebug] = useState(false);
@@ -681,10 +674,10 @@ export default function ClicrPanel({
                 {/* 2. Main Occupancy */}
                 <div className="flex-1 flex flex-col items-center justify-center min-h-0">
                     <OccupancyDisplay
-                        count={totalAreaCount ?? 0}
+                        count={totalAreaCount}
                         capacity={(currentArea?.capacity_max || venue?.default_capacity_total) || undefined}
                         percent={
-                            (currentArea?.capacity_max || venue?.default_capacity_total)
+                            (currentArea?.capacity_max || venue?.default_capacity_total) && totalAreaCount !== undefined && totalAreaCount !== null
                                 ? Math.round((totalAreaCount || 0) / (currentArea?.capacity_max || venue?.default_capacity_total || 1) * 100)
                                 : undefined
                         }

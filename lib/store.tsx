@@ -38,6 +38,10 @@ export type AppState = {
     // Scoped Traffic Stats (For Clicr Screens)
     areaTraffic: Record<string, TrafficTotals>;
 
+    // P0 FIX: Centralized Metrics Stores (Replaces ad-hoc calculations)
+    venueMetrics: Record<string, { total_in: number, total_out: number, current_occupancy: number, last_reset_at: string | null }>;
+    areaMetrics: Record<string, { total_in: number, total_out: number, current_occupancy: number, last_reset_at: string | null }>;
+
     isLoading: boolean;
     lastError: string | null;
 
@@ -61,7 +65,7 @@ type AppContextType = AppState & {
     deleteClicr: (clicrId: string) => Promise<{ success: boolean; error?: string }>;
     updateClicr: (clicr: Clicr) => Promise<void>;
 
-    // Simple pass-throughs or placeholders for now
+    // Simple pass-throughs
     updateBusiness: (updates: Partial<Business>) => Promise<void>;
     addUser: (user: User) => Promise<void>;
     updateUser: (user: User) => Promise<void>;
@@ -86,6 +90,7 @@ type AppContextType = AppState & {
     upsertDeviceLayout: (layoutMode: 'single' | 'dual', primaryId: string, secondaryId: string | null) => Promise<void>;
     renameDevice: (deviceId: string, name: string) => Promise<void>;
     recordTurnaround: (venueId: string, areaId: string, deviceId: string | undefined, count?: number) => Promise<void>;
+    refreshState: () => Promise<void>;
 };
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -110,6 +115,8 @@ const INITIAL_STATE: AppState = {
     patronBans: [],
     traffic: { total_in: 0, total_out: 0, net_delta: 0, event_count: 0 },
     areaTraffic: {},
+    venueMetrics: {},
+    areaMetrics: {}, // Initialize new Stores
     isLoading: true,
     lastError: null,
     debug: { realtimeStatus: 'CONNECTING', lastEvents: [], lastWrites: [], lastSnapshots: [] }
@@ -163,7 +170,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 { data: events },
                 { data: deviceLayouts },
                 { data: turnarounds },
-                totals
+                totals,
+                // NEW: Summary RPCs
+                { data: venueSummaries },
+                { data: areaSummaries }
             ] = await Promise.all([
                 supabase.from('businesses').select('*').eq('id', businessId).single(),
                 supabase.from('venues').select('*').eq('business_id', businessId).eq('status', 'ACTIVE'),
@@ -173,7 +183,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 supabase.from('occupancy_events').select('*').eq('business_id', businessId).order('created_at', { ascending: false }).limit(50),
                 supabase.from('device_layouts').select('*').eq('business_id', businessId),
                 supabase.from('turnarounds').select('*').eq('business_id', businessId).order('created_at', { ascending: false }).limit(50),
-                METRICS.getTotals(businessId, {}) // Global totals
+                METRICS.getTotals(businessId, {}), // Global totals
+                supabase.rpc('get_venue_summaries', { p_business_id: businessId }),
+                supabase.rpc('get_area_summaries', { p_business_id: businessId })
             ]);
 
             // D. Transform & Merge Data
@@ -192,7 +204,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 const snap = (snapshots || []).find(s => s.area_id === a.id);
                 return {
                     ...a,
-                    current_occupancy: snap?.current_occupancy || 0,
+                    current_occupancy: snap?.current_occupancy, // P0 FIX: Do not default to 0. Undefined = "—"
                     // Ensure capacity_max matches DB or fallback
                     capacity_max: a.capacity_max || a.default_capacity || 0
                 };
@@ -204,10 +216,31 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 area_id: d.area_id || '',
                 name: d.name || 'Device',
                 flow_mode: d.direction_mode === 'in_only' ? 'IN_ONLY' : d.direction_mode === 'out_only' ? 'OUT_ONLY' : 'BIDIRECTIONAL',
-                current_count: 0, // Not used for display, AREA count is used
+                current_count: d.direction_mode === 'in_only' || d.direction_mode === 'out_only' ? 0 : 0,
                 active: true,
                 button_config: d.config?.button_config || undefined
             }));
+
+            // BUILD METRICS MAPS
+            const vMetrics: Record<string, any> = {};
+            (venueSummaries || []).forEach((vs: any) => {
+                vMetrics[vs.venue_id] = {
+                    total_in: vs.total_in,
+                    total_out: vs.total_out,
+                    current_occupancy: vs.current_occupancy,
+                    last_reset_at: vs.last_reset_at
+                };
+            });
+
+            const aMetrics: Record<string, any> = {};
+            (areaSummaries || []).forEach((as: any) => {
+                aMetrics[as.area_id] = {
+                    total_in: as.total_in,
+                    total_out: as.total_out,
+                    current_occupancy: as.current_occupancy,
+                    last_reset_at: as.last_reset_at
+                };
+            });
 
             // E. Update State
             setState(prev => ({
@@ -227,7 +260,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 clicrs: mappedClicrs,
                 events: (events || []) as any[],
                 traffic: totals, // Full Sync of Totals
-                areaTraffic: prev.areaTraffic // Preserve scoped cache
+                areaTraffic: prev.areaTraffic, // Preserve scoped cache
+                venueMetrics: vMetrics,
+                areaMetrics: aMetrics
             }));
 
         } catch (error) {
@@ -266,21 +301,34 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
                 onSnapshot: (payload) => {
                     const newSnap = payload.new;
-                    // Precise State Update
+                    // Precise State Update with Staleness Guard
                     setState(prev => ({
                         ...prev,
                         areas: prev.areas.map(a => {
-                            // ZERO-RESET GUARD:
-                            // If incoming snapshot says 0, but we have a non-zero local value that is "recent" (optimization to avoid race), 
-                            // we usually trust DB *unless* we are certain it's a race condition.
-                            // Better rule: Trust DB. But if "newSnap.updated_at" is older than our last update, ignore.
-                            // For simplicty here: Update it unless it feels like an overwrite.
-                            // The real "flash to 0" usually means RLS blocked the read and returned null/default.
-
                             if (a.id === newSnap.area_id) {
-                                // If payload is missing current_occupancy, do not zero it.
+                                // 1. Validate Payload
                                 if (typeof newSnap.current_occupancy !== 'number') return a;
-                                return { ...a, current_occupancy: newSnap.current_occupancy };
+
+                                // 2. Staleness Guard (P0)
+                                // If we have a local timestamp for the last update, ensure new one is newer.
+                                // If local has no timestamp, we accept the authoritative DB one.
+                                const localTs = (a as any).last_snapshot_ts ? new Date((a as any).last_snapshot_ts).getTime() : 0;
+                                const incomingTs = newSnap.updated_at ? new Date(newSnap.updated_at).getTime() : 0;
+
+                                // If incoming is OLDER than what we have, ignore it.
+                                // Exception: If incoming is exactly 0 and source is RESET, we might want to respect it? 
+                                // But resets should update updated_at anyway.
+                                if (incomingTs < localTs && localTs > 0) {
+                                    console.warn(`[Store] Ignored stale snapshot for area ${a.id}. Local: ${localTs}, Incoming: ${incomingTs}`);
+                                    return a;
+                                }
+
+                                return {
+                                    ...a,
+                                    current_occupancy: newSnap.current_occupancy,
+                                    // Store timestamp to protect future updates
+                                    last_snapshot_ts: newSnap.updated_at
+                                };
                             }
                             return a;
                         }),
@@ -314,21 +362,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                         return {
                             ...prev,
                             // events: [e, ...prev.events].slice(0, 50), // We can add to log
-                            traffic: {
-                                ...prev.traffic,
-                                total_in: d > 0 ? prev.traffic.total_in + d : prev.traffic.total_in,
-                                total_out: d < 0 ? prev.traffic.total_out + Math.abs(d) : prev.traffic.total_out,
-                                net_delta: prev.traffic.net_delta + d,
-                                event_count: prev.traffic.event_count + 1
+                            // P0 REALTIME: Update Centralized Metrics Optimistically
+                            venueMetrics: {
+                                ...prev.venueMetrics,
+                                [e.venue_id]: {
+                                    ...(prev.venueMetrics[e.venue_id] || { total_in: 0, total_out: 0, current_occupancy: 0, last_reset_at: null }),
+                                    total_in: (prev.venueMetrics[e.venue_id]?.total_in || 0) + (d > 0 ? d : 0),
+                                    total_out: (prev.venueMetrics[e.venue_id]?.total_out || 0) + (d < 0 ? Math.abs(d) : 0),
+                                }
                             },
-                            // Update Area-Scoped Traffic
-                            areaTraffic: {
-                                ...prev.areaTraffic,
-                                [`area:${e.business_id}:${e.venue_id}:${e.area_id}`]: {
-                                    total_in: (prev.areaTraffic[`area:${e.business_id}:${e.venue_id}:${e.area_id}`]?.total_in || 0) + (d > 0 ? d : 0),
-                                    total_out: (prev.areaTraffic[`area:${e.business_id}:${e.venue_id}:${e.area_id}`]?.total_out || 0) + (d < 0 ? Math.abs(d) : 0),
-                                    net_delta: (prev.areaTraffic[`area:${e.business_id}:${e.venue_id}:${e.area_id}`]?.net_delta || 0) + d,
-                                    event_count: (prev.areaTraffic[`area:${e.business_id}:${e.venue_id}:${e.area_id}`]?.event_count || 0) + 1
+                            areaMetrics: {
+                                ...prev.areaMetrics,
+                                [e.area_id]: {
+                                    ...(prev.areaMetrics[e.area_id] || { total_in: 0, total_out: 0, current_occupancy: 0, last_reset_at: null }),
+                                    total_in: (prev.areaMetrics[e.area_id]?.total_in || 0) + (d > 0 ? d : 0),
+                                    total_out: (prev.areaMetrics[e.area_id]?.total_out || 0) + (d < 0 ? Math.abs(d) : 0),
                                 }
                             },
                             debug: { ...prev.debug, lastEvents: [e, ...prev.debug.lastEvents].slice(0, 10) }
@@ -359,38 +407,109 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         const d = event.delta;
         setState(prev => ({
             ...prev,
-            areas: prev.areas.map(a => a.id === event.area_id ? { ...a, current_occupancy: Math.max(0, (a.current_occupancy || 0) + d) } : a),
-            traffic: {
-                ...prev.traffic,
-                total_in: d > 0 ? prev.traffic.total_in + d : prev.traffic.total_in,
-                total_out: d < 0 ? prev.traffic.total_out + Math.abs(d) : prev.traffic.total_out,
-                net_delta: prev.traffic.net_delta + d
+            areas: prev.areas.map(a => a.id === event.area_id ? {
+                ...a,
+                current_occupancy: Math.max(0, (a.current_occupancy || 0) + d),
+                last_snapshot_ts: new Date().toISOString() // P0 FIX: Prevent overwrite by stale snapshot race
+            } : a),
+            // P0 OPTIMISTIC UPDATE: Centralized Metrics
+            venueMetrics: {
+                ...prev.venueMetrics,
+                [event.venue_id]: {
+                    ...(prev.venueMetrics[event.venue_id] || { total_in: 0, total_out: 0, current_occupancy: 0, last_reset_at: null }),
+                    total_in: (prev.venueMetrics[event.venue_id]?.total_in || 0) + (d > 0 ? d : 0),
+                    total_out: (prev.venueMetrics[event.venue_id]?.total_out || 0) + (d < 0 ? Math.abs(d) : 0),
+                    current_occupancy: (prev.venueMetrics[event.venue_id]?.current_occupancy || 0) + d,
+                }
             },
-            areaTraffic: {
-                ...prev.areaTraffic,
-                [`area:${bizId}:${event.venue_id}:${event.area_id}`]: {
-                    total_in: (prev.areaTraffic[`area:${bizId}:${event.venue_id}:${event.area_id}`]?.total_in || 0) + (d > 0 ? d : 0),
-                    total_out: (prev.areaTraffic[`area:${bizId}:${event.venue_id}:${event.area_id}`]?.total_out || 0) + (d < 0 ? Math.abs(d) : 0),
-                    net_delta: (prev.areaTraffic[`area:${bizId}:${event.venue_id}:${event.area_id}`]?.net_delta || 0) + d,
-                    event_count: (prev.areaTraffic[`area:${bizId}:${event.venue_id}:${event.area_id}`]?.event_count || 0) + 1
+            areaMetrics: {
+                ...prev.areaMetrics,
+                [event.area_id]: {
+                    ...(prev.areaMetrics[event.area_id] || { total_in: 0, total_out: 0, current_occupancy: 0, last_reset_at: null }),
+                    total_in: (prev.areaMetrics[event.area_id]?.total_in || 0) + (d > 0 ? d : 0),
+                    total_out: (prev.areaMetrics[event.area_id]?.total_out || 0) + (d < 0 ? Math.abs(d) : 0),
+                    current_occupancy: (prev.areaMetrics[event.area_id]?.current_occupancy || 0) + d,
                 }
             }
         }));
 
         try {
-            await MUTATIONS.applyDelta(
+            const result = await MUTATIONS.applyDelta(
                 { businessId: bizId, venueId: event.venue_id, areaId: event.area_id, userId: userId },
                 event.delta,
                 'tap',
                 event.clicr_id
             );
 
+            // Log Success
+            // Log Success with UI State Snapshot
+            setState(prev => {
+                const areaNow = prev.areas.find(a => a.id === event.area_id);
+                const aMet = prev.areaMetrics[event.area_id];
+                return {
+                    ...prev,
+                    debug: {
+                        ...prev.debug,
+                        lastWrites: [{
+                            ts: new Date().toISOString(),
+                            type: 'RPC_SUCCESS',
+                            params: event,
+                            result,
+                            uiState: {
+                                occ: areaNow?.current_occupancy,
+                                in: aMet?.total_in,
+                                out: aMet?.total_out
+                            }
+                        }, ...prev.debug.lastWrites].slice(0, 20)
+                    }
+                };
+            });
+
             // Reconcile eventually
             debouncedRefreshTotals();
             debouncedRefreshTotals(event.venue_id, event.area_id);
-        } catch (e) {
+
+            // LOG TRACE: Check State 1s Later (P0 Requirement)
+            setTimeout(() => {
+                setState(prev => {
+                    const areaLater = prev.areas.find(a => a.id === event.area_id);
+                    const aMetLater = prev.areaMetrics[event.area_id];
+                    return {
+                        ...prev,
+                        debug: {
+                            ...prev.debug,
+                            lastWrites: [{
+                                ts: new Date().toISOString(),
+                                type: 'TRACE_CHECK_1S',
+                                params: { areaId: event.area_id },
+                                uiState: {
+                                    occ: areaLater?.current_occupancy,
+                                    in: aMetLater?.total_in,
+                                    out: aMetLater?.total_out
+                                }
+                            }, ...prev.debug.lastWrites].slice(0, 20)
+                        }
+                    };
+                });
+            }, 1000);
+        } catch (e: any) {
             console.error("Tap failed", e);
             setLastError("Tap failed to save. Retrying...");
+
+            // Log Error
+            setState(prev => ({
+                ...prev,
+                debug: {
+                    ...prev.debug,
+                    lastWrites: [{
+                        ts: new Date().toISOString(),
+                        type: 'RPC_ERROR',
+                        params: event,
+                        error: e.message || 'Unknown error'
+                    }, ...prev.debug.lastWrites].slice(0, 20)
+                }
+            }));
+
             refreshState();
         }
     };
@@ -402,16 +521,38 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         if (!bizId || !userId) return;
 
         // Optimistic Clear
-        setState(prev => ({
-            ...prev,
-            areas: prev.areas.map(a => {
-                if (scope === 'BUSINESS') return { ...a, current_occupancy: 0 };
-                if (scope === 'VENUE' && a.venue_id === targetId) return { ...a, current_occupancy: 0 };
-                if (scope === 'AREA' && a.id === targetId) return { ...a, current_occupancy: 0 };
-                return a;
-            }),
-            traffic: { total_in: 0, total_out: 0, net_delta: 0, event_count: 0 } // Aggressive clear
-        }));
+        setState(prev => {
+            const resetMetrics = (metrics: Record<string, any>, idsToReset: Set<string>) => {
+                const next = { ...metrics };
+                idsToReset.forEach(id => {
+                    if (next[id]) {
+                        next[id] = { ...next[id], current_occupancy: 0, total_in: 0, total_out: 0, last_reset_at: new Date().toISOString() };
+                    }
+                });
+                return next;
+            };
+
+            const affectedAreaIds = new Set<string>();
+            const affectedVenueIds = new Set<string>();
+
+            if (scope === 'AREA') affectedAreaIds.add(targetId);
+            if (scope === 'VENUE') {
+                affectedVenueIds.add(targetId);
+                prev.areas.filter(a => a.venue_id === targetId).forEach(a => affectedAreaIds.add(a.id));
+            }
+            if (scope === 'BUSINESS') {
+                Object.keys(prev.venueMetrics).forEach(id => affectedVenueIds.add(id));
+                Object.keys(prev.areaMetrics).forEach(id => affectedAreaIds.add(id));
+            }
+
+            return {
+                ...prev,
+                areas: prev.areas.map(a => affectedAreaIds.has(a.id) ? { ...a, current_occupancy: 0 } : a),
+                venueMetrics: resetMetrics(prev.venueMetrics, affectedVenueIds),
+                areaMetrics: resetMetrics(prev.areaMetrics, affectedAreaIds),
+                traffic: { total_in: 0, total_out: 0, net_delta: 0, event_count: 0 }
+            };
+        });
 
         try {
             await MUTATIONS.resetCounts({ businessId: bizId, userId }, scope, targetId);
@@ -695,7 +836,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             addClicr, addDevice, updateDevice, deleteDevice,
             addCapacityOverride, addVenueAuditLog,
             addBan, revokeBan, createPatronBan, updatePatronBan, recordBanEnforcement,
-            upsertDeviceLayout, renameDevice, recordTurnaround
+            upsertDeviceLayout, renameDevice, recordTurnaround,
+            refreshState
         }}>
             {children}
         </AppContext.Provider>

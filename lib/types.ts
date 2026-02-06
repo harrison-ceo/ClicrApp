@@ -109,6 +109,7 @@ export type Area = {
     // Traffic Stats (Realtime Sync)
     current_traffic_in?: number;
     current_traffic_out?: number;
+    last_snapshot_ts?: string; // New field for staleness guard
 };
 
 

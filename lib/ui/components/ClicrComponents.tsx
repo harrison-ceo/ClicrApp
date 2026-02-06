@@ -47,11 +47,11 @@ export function ActionButton({ variant = 'in', label, icon, className, ...props 
     );
 }
 
-export function OccupancyDisplay({ count, capacity, percent }: { count: number, capacity?: number, percent?: number }) {
+export function OccupancyDisplay({ count, capacity, percent }: { count: number | null | undefined, capacity?: number, percent?: number }) {
     return (
         <div className="flex flex-col items-center justify-center py-8">
             <h1 className="text-[7rem] leading-none font-bold text-white tracking-tighter tabular-nums drop-shadow-2xl">
-                {count}
+                {count ?? '—'}
             </h1>
 
             {capacity && (
@@ -61,7 +61,7 @@ export function OccupancyDisplay({ count, capacity, percent }: { count: number, 
                     </span>
                     <span className="text-slate-600">•</span>
                     <span className="bg-slate-800/80 text-slate-300 px-2 py-0.5 rounded text-[10px] font-bold">
-                        {percent}% FULL
+                        {percent ?? 0}% FULL
                     </span>
                 </div>
             )}

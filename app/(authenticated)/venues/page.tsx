@@ -22,28 +22,38 @@ export default function VenuesPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
 
-    // Helper to calc stats
+    // P0 UPDATED: Helper to calc stats using centralized metrics
+    // "getVenueStats" used to sum area snapshots manually. Now we can check venueMetrics directly unless we want manual sum reliability.
+    const { venueMetrics } = useApp();
+
     const getVenueStats = (venueId: string) => {
+        // Option A: Use the VENUE METRIC (Authoritative Total)
+        // This includes totals (In/Out) which were not there before.
+        const metrics = venueMetrics[venueId];
+
+        // Option B: Live Occupancy is best from SNAPSHOTS (areas array in store) if we trust it, 
+        // to avoid waiting for venueMetrics RPC to refresh on every click. 
+        // Our 'onEvent' update logic keeps venueMetrics.current_occupancy in sync too.
+        // Let's use venueMetrics for simplicity + totals.
+
+        // However, device counts still need manual calculation as they aren't in metrics.
         const venueAreas = areas.filter(a => a.venue_id === venueId);
         const areaIds = venueAreas.map(a => a.id);
-
-        // Sum counts from Area Snapshots (Source of Truth)
         const venueClicrs = clicrs.filter(c => areaIds.includes(c.area_id));
-        const currentOccupancy = venueAreas.reduce((sum, a) => sum + (a.current_occupancy || 0), 0);
 
-        // Devices count (both Clicrs and generic Devices assigned to venue/areas)
-        // Note: Clicrs are transitioning to Devices, but we might have both. 
-        // Let's count 'devices' array items assigned to venue/areas + 'clicrs' if they aren't duplicates.
-        // For now, simplify: use 'devices' array if populated, else 'clicrs'. 
-        // Based on my DB update, I added INITIAL_DEVICES.
         const relevantDevices = devices.filter(d =>
             d.venue_id === venueId || (d.area_id && areaIds.includes(d.area_id))
         );
         const activeDevicesCount = relevantDevices.filter(d => d.status === 'ACTIVE').length + venueClicrs.filter(c => c.active).length;
 
+        // Fallback if metrics not loaded yet
+        const currentOccupancy = metrics?.current_occupancy ?? venueAreas.reduce((sum, a) => sum + (a.current_occupancy || 0), 0);
+
         return {
             areaCount: venueAreas.length,
             currentOccupancy,
+            totalIn: metrics?.total_in || 0,
+            totalOut: metrics?.total_out || 0,
             deviceCount: activeDevicesCount
         };
     };

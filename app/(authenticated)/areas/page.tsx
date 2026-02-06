@@ -58,6 +58,10 @@ export default function AreasPage() {
                     // Calculate Live Occupancy (Source of Truth: Occupancy Snapshot)
                     const liveOcc = area.current_occupancy || 0;
 
+                    // P0 Updated: Get Totals from Central Metrics
+                    const { areaMetrics } = useApp();
+                    const metrics = areaMetrics[area.id] || { total_in: 0, total_out: 0 };
+
                     // Capacity & Percentage
                     const capacity = area.default_capacity || area.capacity_limit || 0;
                     const percentage = capacity > 0 ? Math.round((liveOcc / capacity) * 100) : null;
@@ -102,6 +106,17 @@ export default function AreasPage() {
                                     <div className="text-right">
                                         <div className="text-sm font-medium text-slate-300">/ {capacity > 0 ? capacity : '—'} Cap</div>
                                         <div className={cn("text-xs font-bold", statusColor.replace('bg-', 'text-'))}>{percentage !== null ? `${percentage}% Full` : '—'}</div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                    <div className="bg-slate-900/40 p-2 rounded">
+                                        <div className="text-[10px] text-slate-400 uppercase">Traffic In</div>
+                                        <div className="text-lg font-mono font-bold text-emerald-400">+{metrics.total_in}</div>
+                                    </div>
+                                    <div className="bg-slate-900/40 p-2 rounded">
+                                        <div className="text-[10px] text-slate-400 uppercase">Traffic Out</div>
+                                        <div className="text-lg font-mono font-bold text-amber-400">-{metrics.total_out}</div>
                                     </div>
                                 </div>
 

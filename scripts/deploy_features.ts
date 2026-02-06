@@ -17,9 +17,9 @@ if (!supabaseUrl || !supabaseServiceKey) {
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 async function runMigration() {
-    console.log("Starting EMERGENCY P0 FIX Migration...");
+    console.log("Starting TOTALS SYNC Fix Migration...");
 
-    const migrationPath = path.join(process.cwd(), 'supabase', 'migrations', '20260205200000_fix_broken_p0.sql');
+    const migrationPath = path.join(process.cwd(), 'supabase', 'migrations', '20260205210000_fix_totals_sync.sql');
     const sql = fs.readFileSync(migrationPath, 'utf8');
 
     // Execute via RPC exec_sql

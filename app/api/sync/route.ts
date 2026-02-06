@@ -65,7 +65,7 @@ async function hydrateData(data: DBData, userId?: string): Promise<DBData> {
             console.log("[Hydration] Seeding Venues to Supabase...", effectiveBizId);
             const seedVenues = data.venues.map(v => ({
                 id: v.id,
-                business_id: effectiveBizId || 'biz_001',
+                business_id: effectiveBizId || '00000000-0000-0000-0000-000000000000',
                 name: v.name,
                 total_capacity: v.default_capacity_total,
                 status: 'ACTIVE'
@@ -171,29 +171,13 @@ async function hydrateData(data: DBData, userId?: string): Promise<DBData> {
 
         if (snapshots) {
             // SELF-HEALING: Identify areas missing snapshots and create them
+            // [REMOVED PER USER REQUEST - P0 BLOCKER]
+            // "Remove any INIT/SEED/ENSURE routines that write 0 on mount"
+            // We do NOT want to auto-create 0 snapshots as it might overwrite real data if our read was just flaky.
+            /*
             const missingSnapshotAreas = data.areas.filter(a => !snapshots.find((s) => s.area_id === a.id));
-
-            if (missingSnapshotAreas.length > 0) {
-                console.warn(`[Hydration] Found ${missingSnapshotAreas.length} areas missing snapshots. Creating...`);
-                await Promise.all(missingSnapshotAreas.map(async (a) => {
-                    try {
-                        // Resolve Business ID from Venues
-                        const venue = data.venues.find(v => v.id === a.venue_id);
-                        const bizId = venue?.business_id || 'biz_001';
-
-                        await supabaseAdmin.from('occupancy_snapshots').insert({
-                            business_id: bizId,
-                            venue_id: a.venue_id,
-                            area_id: a.id,
-                            current_occupancy: 0,
-                            updated_at: new Date().toISOString()
-                        });
-                        console.log(`[Hydration] Created missing snapshot for Area: ${a.id}`);
-                    } catch (e) {
-                        console.error(`[Hydration] Failed to create snapshot for ${a.id}`, e);
-                    }
-                }));
-            }
+            if (missingSnapshotAreas.length > 0) { ... }
+            */
 
             // Map snapshots and stats to areas
             data.areas = data.areas.map(a => {
@@ -218,7 +202,7 @@ async function hydrateData(data: DBData, userId?: string): Promise<DBData> {
         const { data: occEvents, error: occError } = await supabaseAdmin
             .from('occupancy_events')
             .select('*')
-            .eq('business_id', effectiveBizId || 'biz_001') // Filter by biz to be safe
+            .eq('business_id', effectiveBizId || '00000000-0000-0000-0000-000000000000') // Filter by biz to be safe
             .order('created_at', { ascending: false }) // FIX: created_at
             .limit(100);
 
@@ -426,7 +410,7 @@ export async function POST(request: Request) {
                     const { data: p } = await supabaseAdmin.from('profiles').select('business_id').eq('id', userId).single();
                     if (p) eventBizId = p.business_id;
                 }
-                const finalEventBizId = eventBizId || 'biz_001';
+                const finalEventBizId = eventBizId || '00000000-0000-0000-0000-000000000000';
 
                 // Safe UUID check helper
                 const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -514,7 +498,7 @@ export async function POST(request: Request) {
                 // PERSIST: Save scan to Supabase
                 try {
                     await supabaseAdmin.from('scan_events').insert({
-                        business_id: 'biz_001',
+                        business_id: '00000000-0000-0000-0000-000000000000',
                         venue_id: scan.venue_id,
                         timestamp: new Date(scan.timestamp).toISOString(),
                         scan_result: scan.scan_result,
@@ -554,7 +538,7 @@ export async function POST(request: Request) {
 
                         // Log Event
                         await supabaseAdmin.from('occupancy_events').insert({
-                            business_id: 'biz_001', // Should resolve properly
+                            business_id: '00000000-0000-0000-0000-000000000000', // Should resolve properly
                             venue_id: resetVenueId,
                             area_id: resetAreaId,
                             timestamp: new Date().toISOString(),
@@ -601,7 +585,7 @@ export async function POST(request: Request) {
 
                 // Resolve Business ID
                 let statsBizId = userId ? (await supabaseAdmin.from('profiles').select('business_id').eq('id', userId).single()).data?.business_id : null;
-                if (!statsBizId) statsBizId = 'biz_001'; // Fallback
+                if (!statsBizId) statsBizId = '00000000-0000-0000-0000-000000000000'; // Fallback
 
                 // Support Custom Window
                 const tsStart = safePayload.start_ts || new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString();
@@ -680,7 +664,7 @@ export async function POST(request: Request) {
                 // Fallback for Dev/Playground or critical failure
                 if (!clicrBizId) {
                     console.warn("No Business ID found for ADD_CLICR, falling back to biz_001");
-                    clicrBizId = 'biz_001';
+                    clicrBizId = '00000000-0000-0000-0000-000000000000';
                 }
 
                 try {
