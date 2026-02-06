@@ -1258,7 +1258,6 @@ function TapButton({
         </motion.button>
     )
 }
-
 function CameraScanner({ onScan }: { onScan: (text: string) => void }) {
     const [torch, setTorch] = useState(false);
     const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -1340,5 +1339,6 @@ function CameraScanner({ onScan }: { onScan: (text: string) => void }) {
         </div>
     );
 }
+
 
 

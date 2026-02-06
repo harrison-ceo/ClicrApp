@@ -1,10 +1,9 @@
-
-import { signup } from '@/app/login/actions'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
+import { signUp } from './actions'
 
 type Props = {
-    searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }
 
 export default async function SignupPage({ searchParams }: Props) {
@@ -35,7 +34,7 @@ export default async function SignupPage({ searchParams }: Props) {
                     </div>
                 )}
 
-                <form className="mt-8 space-y-6">
+                <form action={signUp} className="mt-8 space-y-6">
                     <div className="space-y-4 rounded-md shadow-sm">
                         <div>
                             <label htmlFor="email" className="sr-only">Email address</label>
@@ -65,7 +64,7 @@ export default async function SignupPage({ searchParams }: Props) {
 
                     <div className="flex flex-col gap-3">
                         <button
-                            formAction={signup}
+                            type="submit"
                             className="group relative flex w-full justify-center rounded-xl bg-primary py-3 px-4 text-sm font-bold text-white hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-gray-900 transition-all shadow-lg shadow-primary/25"
                         >
                             Create Account

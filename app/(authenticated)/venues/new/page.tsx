@@ -1,18 +1,28 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
-import { Venue, Area, Clicr } from '@/lib/types';
+import { Area, Clicr } from '@/lib/types';
+import { useRole, canCreateVenues } from '@/components/RoleContext';
+import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Check, Plus, Trash2, MapPin, Building2, Users } from 'lucide-react';
 
 type Step = 'VENUE' | 'AREAS' | 'CLICRS';
 
 export default function NewVenuePage() {
     const router = useRouter();
-    const { addVenue, addArea, addClicr, updateBusiness } = useApp();
+    const role = useRole();
+    const { addArea, addClicr } = useApp();
+
+    useEffect(() => {
+        if (role !== null && !canCreateVenues(role)) {
+            router.replace('/venues');
+        }
+    }, [role, router]);
     const [step, setStep] = useState<Step>('VENUE');
     const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     // Data State
     const [venueId, setVenueId] = useState<string>('');
@@ -32,34 +42,63 @@ export default function NewVenuePage() {
     const [clicrInputs, setClicrInputs] = useState<Record<string, string>>({}); // Pending input per area
     const [createdClicrs, setCreatedClicrs] = useState<Clicr[]>([]);
 
-    // --- STEP 1: CREATE VENUE ---
+    // --- STEP 1: CREATE VENUE (Supabase: org + venue, current user as owner) ---
     const handleCreateVenue = async (e: React.FormEvent) => {
         e.preventDefault();
+        setError(null);
         setIsLoading(true);
 
-        // Update Org Name if provided
-        if (venueData.orgName) {
-            await updateBusiness({ name: venueData.orgName });
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            setError('You must be signed in to create a venue.');
+            setIsLoading(false);
+            return;
         }
 
-        const newId = Math.random().toString(36).substring(7);
-        const venue: Venue = {
-            id: newId,
-            business_id: 'biz_001',
-            name: venueData.name,
-            city: venueData.city,
-            state: venueData.state,
-            default_capacity_total: venueData.capacity,
-            capacity_enforcement_mode: 'WARN_ONLY',
-            status: 'ACTIVE',
-            timezone: 'America/New_York',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            active: true
-        };
+        // Resolve org: use existing from profile or create one
+        const { data: profile } = await supabase.from('profiles').select('org_id').eq('id', user.id).single();
+        let orgId: string | null = profile?.org_id ?? null;
 
-        await addVenue(venue);
-        setVenueId(newId);
+        if (!orgId) {
+            const orgName = venueData.orgName?.trim() || 'My Organization';
+            const { data: newOrg, error: orgErr } = await supabase
+                .from('organizations')
+                .insert({ name: orgName, owner_id: user.id })
+                .select('id')
+                .single();
+            if (orgErr) {
+                setError(orgErr.message || 'Failed to create organization.');
+                setIsLoading(false);
+                return;
+            }
+            orgId = newOrg.id;
+            await supabase.from('profiles').update({ org_id: orgId, role: 'org_owner' }).eq('id', user.id);
+        } else if (venueData.orgName?.trim()) {
+            await supabase.from('organizations').update({ name: venueData.orgName.trim() }).eq('id', orgId);
+        }
+
+        const address = [venueData.city, venueData.state].filter(Boolean).join(', ') || null;
+        const { data: newVenue, error: venueErr } = await supabase
+            .from('venues')
+            .insert({
+                org_id: orgId,
+                name: venueData.name.trim(),
+                address,
+                capacity: venueData.capacity,
+                owner_id: user.id
+            })
+            .select('id')
+            .single();
+
+        if (venueErr) {
+            setError(venueErr.message || 'Failed to create venue.');
+            setIsLoading(false);
+            return;
+        }
+
+        await supabase.from('profiles').update({ venue_id: newVenue.id }).eq('id', user.id);
+        setVenueId(newVenue.id);
         setIsLoading(false);
         setStep('AREAS');
     };
@@ -117,7 +156,8 @@ export default function NewVenuePage() {
     };
 
     const handleFinish = () => {
-        router.push('/dashboard');
+        router.refresh();
+        router.push('/venues');
     };
 
     // --- RENDERERS ---
@@ -127,6 +167,11 @@ export default function NewVenuePage() {
             <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                 <Building2 className="text-primary" /> Step 1: Business & Venue
             </h2>
+            {error && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    {error}
+                </div>
+            )}
             <div className="space-y-2 border-b border-slate-800 pb-6 mb-6">
                 <label className="text-sm font-medium text-slate-300">Organization Name (Inc, LLC)</label>
                 <input

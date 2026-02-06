@@ -78,7 +78,6 @@ function Section({ title, children }: { title: string, children: React.ReactNode
         </section>
     );
 }
-
 function JsonDisplay({ data }: { data: any }) {
     return (
         <pre className="bg-black/50 p-2 rounded overflow-auto border border-white/5 text-xs text-slate-400 max-h-[300px]">
@@ -86,3 +85,4 @@ function JsonDisplay({ data }: { data: any }) {
         </pre>
     );
 }
+

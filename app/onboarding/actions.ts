@@ -1,117 +1,135 @@
 'use server'
 
-import { createClient } from '@/utils/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
+/** Extract invite code from form: raw code or "code" query param from pasted URL */
+function parseInviteCode(input: string): string {
+  const trimmed = (input || '').trim()
+  try {
+    const asUrl = trimmed.startsWith('http') ? trimmed : `https://x/?${trimmed}`
+    const url = new URL(asUrl)
+    const code = url.searchParams.get('code') || url.pathname.replace(/^\/join\/?/, '').replace(/^\//, '') || trimmed
+    return code.trim() || trimmed
+  } catch {
+    return trimmed
+  }
+}
+
+/** Create org + first venue (org owner path). Uses organizations + venues + profiles. */
 export async function completeOnboarding(formData: FormData) {
-    const supabase = await createClient()
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return redirect('/login')
 
-    // 1. Get Current User
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-        return redirect('/login')
+  const businessName = (formData.get('businessName') as string)?.trim()
+  const venueName = (formData.get('venueName') as string)?.trim()
+  const venueCity = (formData.get('venueCity') as string)?.trim()
+  const venueState = (formData.get('venueState') as string)?.trim()
+  const venueCapacity = Number(formData.get('venueCapacity')) || 500
+
+  if (!businessName || !venueName) {
+    return redirect('/onboarding?error=Please fill in organization and venue name')
+  }
+
+  const address = [venueCity, venueState].filter(Boolean).join(', ') || null
+
+  try {
+    const { data: org, error: orgError } = await supabaseAdmin
+      .from('organizations')
+      .insert({ name: businessName, owner_id: user.id })
+      .select()
+      .single()
+    if (orgError) throw new Error(`Organization creation failed: ${orgError.message}`)
+
+    const { data: venue, error: venueError } = await supabaseAdmin
+      .from('venues')
+      .insert({
+        org_id: org.id,
+        name: venueName,
+        address,
+        capacity: venueCapacity,
+        owner_id: user.id,
+      })
+      .select()
+      .single()
+    if (venueError) throw new Error(`Venue creation failed: ${venueError.message}`)
+
+    await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        org_id: org.id,
+        venue_id: venue.id,
+        role: 'org_owner',
+        email: user.email ?? undefined,
+        full_name: user.user_metadata?.full_name ?? undefined,
+      }, { onConflict: 'id' })
+
+    console.log(`[Onboarding] Org + venue created for user ${user.id} -> org ${org.id}`)
+  } catch (err) {
+    console.error('[Onboarding] Error:', err)
+    return redirect(`/onboarding?error=${encodeURIComponent((err as Error).message)}`)
+  }
+
+  revalidatePath('/', 'layout')
+  redirect('/dashboard')
+}
+
+/** Join existing org/venue with invite code (venue owner or venue staff). Code can be venue ID or ?code= from invite URL. */
+export async function joinWithInvite(formData: FormData) {
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return redirect('/login')
+
+  const rawCode = (formData.get('inviteCode') as string) || ''
+  const role = (formData.get('role') as string) || 'venue_staff'
+  const code = parseInviteCode(rawCode)
+  if (!code) return redirect('/onboarding?error=Please enter an invite code or paste the invite link')
+
+  try {
+    const isUuid = code.length === 36 && /^[0-9a-f-]{36}$/i.test(code)
+    if (!isUuid) {
+      return redirect('/onboarding?error=Invite code should be the venue ID (UUID) from your org owner. Paste the full invite link or the ID they shared.')
     }
 
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-        console.error("Missing SUPABASE_SERVICE_ROLE_KEY");
-        return redirect('/onboarding?error=Server Configuration Error');
+    const { data: venue, error: venueError } = await supabaseAdmin
+      .from('venues')
+      .select('id, org_id')
+      .eq('id', code)
+      .single()
+
+    if (venueError || !venue) {
+      return redirect('/onboarding?error=Invalid or expired invite code. Ask your org owner for a new link.')
     }
 
-    const businessName = formData.get('businessName') as string
-    const venueName = formData.get('venueName') as string
-    const venueCapacity = parseInt(formData.get('venueCapacity') as string) || 500
-    const venueTimezone = formData.get('venueTimezone') as string || 'UTC'
+    const { error: staffError } = await supabaseAdmin
+      .from('venue_staff')
+      .upsert(
+        { venue_id: venue.id, user_id: user.id, role: role === 'venue_owner' ? 'venue_owner' : 'staff' },
+        { onConflict: 'venue_id,user_id' }
+      )
+    if (staffError) throw new Error(staffError.message)
 
-    if (!businessName || !venueName) {
-        return redirect('/onboarding?error=Please fill in all fields')
-    }
+    await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        org_id: venue.org_id,
+        venue_id: venue.id,
+        role: role === 'venue_owner' ? 'venue_owner' : 'staff',
+        email: user.email ?? undefined,
+        full_name: user.user_metadata?.full_name ?? undefined,
+      }, { onConflict: 'id' })
 
-    try {
-        // 2. Create Business
-        const { data: business, error: bizError } = await supabaseAdmin
-            .from('businesses')
-            .insert({
-                name: businessName,
-                // Mark complete immediately for this simple flow
-                // In a multi-step flow, we'd set this at the very end
-                // But since this IS the only step currently:
-                // We will set it later to be safe
-            })
-            .select()
-            .single()
+    console.log(`[Onboarding] User ${user.id} joined venue ${venue.id} as ${role}`)
+  } catch (err) {
+    console.error('[Onboarding] Join error:', err)
+    return redirect(`/onboarding?error=${encodeURIComponent((err as Error).message)}`)
+  }
 
-        if (bizError) throw new Error(`Business Creation Failed: ${bizError.message}`);
-
-        // 3. Create Membership (CRITICAL: This links User -> Business)
-        const { error: memberError } = await supabaseAdmin
-            .from('business_members')
-            .insert({
-                business_id: business.id,
-                user_id: user.id,
-                role: 'OWNER',
-                is_default: true
-            });
-
-        if (memberError) throw new Error(`Membership Creation Failed: ${memberError.message}`);
-
-        // 4. Update Legacy Profile (Backwards Compatibility)
-        // We still keep business_id on profiles for simpler queries in some legacy components
-        await supabaseAdmin
-            .from('profiles')
-            .upsert({
-                id: user.id,
-                business_id: business.id, // Legacy pointer
-                role: 'OWNER',
-                email: user.email,
-                full_name: 'Admin User'
-            });
-
-        // 5. Create Venue
-        const { data: venue, error: venueError } = await supabaseAdmin
-            .from('venues')
-            .insert({
-                business_id: business.id,
-                name: venueName,
-                total_capacity: venueCapacity,
-                timezone: venueTimezone,
-                status: 'ACTIVE'
-            })
-            .select()
-            .single();
-
-        if (venueError) throw new Error(`Venue Creation Failed: ${venueError.message}`);
-
-        // 6. Create Default Area
-        await supabaseAdmin.from('areas').insert({
-            venue_id: venue.id,
-            name: 'General Admission',
-            capacity: venueCapacity
-        });
-
-        // 7. Mark Onboarding Complete
-        // Only verify completion if all above succeeded
-        await supabaseAdmin
-            .from('businesses')
-            .update({ settings: { onboarding_completed_at: new Date().toISOString() } }) // storing in settings JSON or dedicated column if schema allows
-            // If schema doesn't have onboarding_completed_at column, we rely on membership existence
-            .eq('id', business.id);
-
-        // 8. Log Success
-        console.log(`[Onboarding] Success for User ${user.id} -> Business ${business.id}`);
-
-    } catch (err) {
-        console.error("[Onboarding] Error:", err);
-        // Log to DB if possible (best effort)
-        await supabaseAdmin.from('app_errors').insert({
-            user_id: user.id,
-            error_message: (err as Error).message,
-            context: 'completeOnboarding'
-        });
-        return redirect(`/onboarding?error=${encodeURIComponent((err as Error).message)}`);
-    }
-
-    revalidatePath('/', 'layout')
-    redirect('/dashboard')
+  revalidatePath('/', 'layout')
+  redirect('/dashboard')
 }

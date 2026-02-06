@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { createClient } from '@/utils/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 import {
     LayoutDashboard,
     Building2,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/lib/store';
+import { RoleProvider, type AppRole } from '@/components/RoleContext';
 
 const NAV_ITEMS = [
     { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -30,7 +31,7 @@ const NAV_ITEMS = [
     { label: 'Support', href: '/support', icon: Building2 },
 ];
 
-export function AppLayout({ children }: { children: React.ReactNode }) {
+export function AppLayout({ children, role = null }: Readonly<{ children: React.ReactNode; role?: AppRole }>) {
     const pathname = usePathname();
     const router = useRouter();
     const { currentUser } = useApp();
@@ -43,8 +44,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     };
 
     return (
-        // Root container: Fixed to viewport edges (inset-0) to guarantee full coverage
-        // Flex Column to stack content and nav naturally
+        <RoleProvider role={role}>
+        {/* Root container: Fixed to viewport edges (inset-0) to guarantee full coverage */}
         <div className="fixed inset-0 w-full bg-background text-foreground flex flex-col md:flex-row overflow-hidden">
 
             {/* Sidebar (Desktop) */}
@@ -59,7 +60,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                             <Settings className="w-5 h-5" />
                         </Link>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">v1.0.0 • {currentUser?.role || 'Loading'}</p>
+                    <p className="text-xs text-muted-foreground mt-2">v1.0.0 • {role ?? currentUser?.role ?? '—'}</p>
                 </div>
 
                 <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
@@ -151,5 +152,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
             </nav>
         </div>
+        </RoleProvider>
     );
 }

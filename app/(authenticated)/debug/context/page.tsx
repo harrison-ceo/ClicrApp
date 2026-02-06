@@ -71,7 +71,6 @@ export default function DebugContextPage() {
         </div>
     );
 }
-
 const Section = ({ title, data }: { title: string, data: any }) => (
     <div className="bg-slate-900 p-4 rounded border border-slate-800">
         <h3 className="text-emerald-400 font-bold mb-2">{title}</h3>
@@ -80,3 +79,4 @@ const Section = ({ title, data }: { title: string, data: any }) => (
         </pre>
     </div>
 );
+
