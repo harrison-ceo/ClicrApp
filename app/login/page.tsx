@@ -2,7 +2,6 @@
 import { login } from './actions'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
-import { V4LaunchNotice } from '@/components/auth/V4LaunchNotice'
 
 type Props = {
     searchParams: Promise<{ [key: string]: string | string[] | undefined }>
@@ -80,8 +79,6 @@ export default async function LoginPage({ searchParams }: Props) {
                             Sign in
                         </button>
                     </div>
-
-                    <V4LaunchNotice />
 
                     <div className="text-center mt-6">
                         <p className="text-slate-500 text-sm">
