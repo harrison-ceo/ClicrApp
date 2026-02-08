@@ -112,8 +112,8 @@ export default function VenueDetailPage() {
               Retry
             </button>
             <span className="text-slate-700">•</span>
-            <Link href="/venues" className="text-primary hover:underline">
-              Back to Venues
+            <Link href="/dashboard" className="text-primary hover:underline">
+              Back to Dashboard
             </Link>
           </div>
         </div>
@@ -125,7 +125,7 @@ export default function VenueDetailPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Link
-          href="/venues"
+          href="/dashboard"
           className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -165,7 +165,7 @@ export default function VenueDetailPage() {
         {activeTab === 'OVERVIEW' && (
           <VenueOverviewTab venueId={venueId} venue={venue} onRefresh={fetchVenue} />
         )}
-        {activeTab === 'AREAS' && <VenueAreas venueId={venueId} venueCapacity={venue.capacity} />}
+        {activeTab === 'AREAS' && <VenueAreas venueId={venueId} venueCapacity={venue.capacity} venueName={venue?.name} />}
         {activeTab === 'DEVICES' && <VenueDevicesTab venueId={venueId} />}
         {activeTab === 'TEAM' && <VenueTeamTab venueId={venueId} />}
         {activeTab === 'SETTINGS' && <VenueSettingsTab venue={venue} onRefresh={fetchVenue} />}

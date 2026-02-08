@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { Area, AreaType, CountingMode } from '@/lib/types';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Edit2, Trash2, Move, MonitorSmartphone } from 'lucide-react';
+import { Plus, Layers, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRole } from '@/components/RoleContext';
@@ -23,7 +24,7 @@ type VenueAreaDisplay = {
     [key: string]: unknown;
 };
 
-export default function VenueAreas({ venueId, venueCapacity = 0 }: { venueId: string; venueCapacity?: number }) {
+export default function VenueAreas({ venueId, venueCapacity = 0, venueName }: { venueId: string; venueCapacity?: number; venueName?: string }) {
     const role = useRole();
     const isStaff = role === 'staff';
     const [areas, setAreas] = useState<AreaRow[]>([]);
@@ -134,15 +135,6 @@ export default function VenueAreas({ venueId, venueCapacity = 0 }: { venueId: st
         setIsEditModalOpen(true);
     };
 
-    const handleEdit = (summary: VenueAreaDisplay) => {
-        const cap = summary.capacity ?? summary.capacity_max ?? summary.default_capacity ?? 0;
-        setEditingArea({
-            ...summary,
-            default_capacity: cap,
-        });
-        setIsEditModalOpen(true);
-    };
-
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingArea?.name?.trim()) return;
@@ -194,78 +186,87 @@ export default function VenueAreas({ venueId, venueCapacity = 0 }: { venueId: st
             {loading ? (
                 <div className="p-8 text-center text-slate-500">Loading areas…</div>
             ) : (
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {venueAreas.length === 0 && !fetchError && (
-                    <div className="p-8 text-center bg-slate-900/30 rounded-2xl border border-slate-800 border-dashed">
+                    <div className="col-span-full p-8 text-center bg-slate-900/30 rounded-2xl border border-slate-800 border-dashed">
                         <p className="text-slate-500">No areas configured yet. Add one to start tracking occupancy.</p>
                     </div>
                 )}
 
-                {venueAreas.map(area => (
-                    <div
-                        key={area.id}
-                        className="flex items-center gap-4 p-4 bg-slate-900/50 border border-slate-800 rounded-xl hover:border-slate-700 transition-colors group"
-                    >
-                        <div className="text-slate-600 cursor-grab active:cursor-grabbing">
-                            <Move className="w-5 h-5" />
-                        </div>
+                {venueAreas.map(area => {
+                    const liveOcc = Number(area.current_occupancy) || 0;
+                    const capacity = area.capacity ?? 0;
+                    const percentage = area.percent_full ?? (capacity > 0 ? Math.round((liveOcc / capacity) * 100) : null);
 
-                        <div className="w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center font-bold text-slate-400">
-                            {(area.name || '  ').slice(0, 2).toUpperCase()}
-                        </div>
+                    let statusColor = "bg-emerald-500";
+                    let statusText = "Normal";
+                    let badgeClass = "bg-emerald-500/20 text-emerald-400";
+                    let percentClass = "text-emerald-400";
+                    if (percentage !== null && percentage !== undefined) {
+                        if (percentage > 95) {
+                            statusColor = "bg-red-500";
+                            statusText = "Critical";
+                            badgeClass = "bg-red-500/20 text-red-400";
+                            percentClass = "text-red-400";
+                        } else if (percentage > 80) {
+                            statusColor = "bg-amber-500";
+                            statusText = "Near Cap";
+                            badgeClass = "bg-amber-500/20 text-amber-400";
+                            percentClass = "text-amber-400";
+                        }
+                    } else {
+                        statusColor = "bg-slate-700";
+                        statusText = "No Cap";
+                        badgeClass = "bg-slate-700/50 text-slate-400";
+                        percentClass = "text-slate-500";
+                    }
 
-                        <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                                <h3 className="font-bold text-white">{area.name}</h3>
-                                {area.area_type && (
-                                    <span className="text-[10px] px-2 py-0.5 bg-slate-800 rounded-full text-slate-400 uppercase tracking-wider">
-                                        {area.area_type}
-                                    </span>
-                                )}
-                            </div>
-                            <div className="flex flex-col gap-2 mt-2 w-full max-w-[200px]">
-                                <div className="flex justify-between text-xs font-mono">
-                                    <span className={cn(
-                                        "font-bold",
-                                        area.percent_full >= 100 && area.capacity > 0 ? "text-red-400" : "text-slate-300"
-                                    )}>
-                                        {area.current_occupancy} / {area.capacity > 0 ? area.capacity : '∞'}
-                                    </span>
-                                    <span className="text-slate-500">
-                                        {area.capacity > 0 ? `${area.percent_full}%` : '-'}
+                    const isActive = area.is_active !== false && (area as { active?: boolean }).active !== false;
+
+                    return (
+                        <Link key={area.id} href={`/areas/${area.id}`} className="group relative block">
+                            <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-xl relative overflow-hidden transition-all duration-300 group-hover:bg-slate-800/80 group-hover:border-primary/50 group-hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]">
+
+                                <div className="flex items-start justify-between mb-4 mt-2">
+                                    <div>
+                                        {venueName && (
+                                            <span className="text-xs text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                                                {venueName}
+                                            </span>
+                                        )}
+                                        <h2 className="text-xl font-bold text-white group-hover:text-primary transition-colors">{area.name}</h2>
+                                    </div>
+                                    <span className={cn("px-2 py-1 rounded text-[10px] font-bold uppercase", badgeClass)}>
+                                        {statusText}
                                     </span>
                                 </div>
-                                {area.capacity > 0 && (
-                                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                        <div
-                                            className={cn("h-full transition-all duration-500",
-                                                area.percent_full > 90 ? "bg-red-500" : "bg-primary"
-                                            )}
-                                            style={{ width: `${Math.min(area.percent_full, 100)}%` }}
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                            <div className="flex items-center gap-2 mt-2 text-slate-500 text-xs">
-                                <MonitorSmartphone className="w-3.5 h-3.5" />
-                                <span>{deviceCountByAreaId[area.id] ?? 0} device{(deviceCountByAreaId[area.id] ?? 0) !== 1 ? 's' : ''}</span>
-                            </div>
-                        </div>
 
-                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
-                                onClick={() => handleEdit(area)}
-                                className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-                            >
-                                <Edit2 className="w-4 h-4" />
-                            </button>
-                            {/* Archive/Delete (Mock) */}
-                            <button className="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-500 transition-colors">
-                                <Trash2 className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
-                ))}
+                                <div className="flex items-end justify-between mb-6">
+                                    <div>
+                                        <div className="text-4xl font-bold text-white tabular-nums">{liveOcc}</div>
+                                        <div className="text-xs text-slate-400">Live Occupancy</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-sm font-medium text-slate-300">/ {capacity > 0 ? capacity : '—'} Cap</div>
+                                        <div className={cn("text-xs font-bold", percentClass)}>{percentage != null ? `${percentage}% Full` : '—'}</div>
+                                    </div>
+                                </div>
+
+                                <div className="pt-4 border-t border-white/5 flex items-center justify-between text-slate-400 text-sm">
+                                    <div className="flex items-center gap-2">
+                                        <Layers className="w-4 h-4" />
+                                        <span>{deviceCountByAreaId[area.id] ?? 0} device{(deviceCountByAreaId[area.id] ?? 0) !== 1 ? 's' : ''}</span>
+                                    </div>
+                                    {isActive ? (
+                                        <div className="flex items-center gap-1 text-emerald-400 text-xs"><CheckCircle2 className="w-3 h-3" /> Active</div>
+                                    ) : (
+                                        <div className="flex items-center gap-1 text-slate-500 text-xs"><AlertCircle className="w-3 h-3" /> Inactive</div>
+                                    )}
+                                </div>
+                            </div>
+                        </Link>
+                    );
+                })}
             </div>
             )}
 

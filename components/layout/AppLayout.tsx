@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client';
 import {
     LayoutDashboard,
     Building2,
-    MapPin,
     Layers,
     MousePointer2,
     ScanFace,
@@ -23,7 +22,6 @@ import { Button } from '../ui/button';
 
 const NAV_ITEMS = [
     { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { label: 'Venues', href: '/venues', icon: MapPin },
     { label: 'Areas', href: '/areas', icon: Layers },
     { label: 'Clicr', href: '/clicr', icon: MousePointer2 },
     { label: 'Guests', href: '/guests', icon: ScanFace },
@@ -105,7 +103,7 @@ export function AppLayout({ children, role = null }: Readonly<{ children: React.
                             >
                                 <Settings className="w-5 h-5" />
                             </Link>
-                            <Button className='rounded-full text-slate-400 hover:text-white cursor-pointer hover:bg-slate-800' variant="ghost" size="icon" onClick={handleSignOut} title="Sign out">
+                            <Button className='rounded-full text-slate-400 cursor-pointer hover:bg-slate-800' variant="ghost" size="icon" onClick={handleSignOut} title="Sign out">
                                 <LogOut className="w-5 h-5" />
                             </Button>
                         </div>

@@ -5,6 +5,14 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
+function toProfileRole(role: string | null | undefined): 'OWNER' | 'MANAGER' | 'STAFF' {
+  if (!role) return 'STAFF'
+  const r = role.toLowerCase()
+  if (r === 'owner' || r === 'org_owner') return 'OWNER'
+  if (r === 'manager' || r === 'admin' || r === 'venue_owner') return 'MANAGER'
+  return 'STAFF'
+}
+
 function isNextRedirect(err: unknown): boolean {
   return (
     !!err &&
@@ -67,16 +75,17 @@ export async function completeOnboarding(formData: FormData) {
       .single()
     if (venueError) throw new Error(`Venue creation failed: ${venueError.message}`)
 
-    await supabaseAdmin
+    const { error: profileError } = await supabaseAdmin
       .from('profiles')
       .upsert({
         id: user.id,
         org_id: org.id,
         venue_id: venue.id,
-        role: 'org_owner',
+        role: 'OWNER',
         email: user.email ?? undefined,
         full_name: user.user_metadata?.full_name ?? undefined,
       }, { onConflict: 'id' })
+    if (profileError) throw new Error(`Profile update failed: ${profileError.message}`)
 
     console.log(`[Onboarding] Org + venue created for user ${user.id} -> org ${org.id}`)
   } catch (err) {
@@ -113,6 +122,7 @@ export async function joinWithInvite(formData: FormData) {
     if (venueInvite.expires_at && venueInvite.expires_at <= nowIso) return false
 
     const inviteRole = venueInvite.role === 'venue_owner' ? 'venue_owner' : 'staff'
+    const profileRole = toProfileRole(inviteRole)
     const { error: staffError } = await supabaseAdmin
       .from('venue_staff')
       .upsert(
@@ -121,16 +131,17 @@ export async function joinWithInvite(formData: FormData) {
       )
     if (staffError) throw new Error(staffError.message)
 
-    await supabaseAdmin
+    const { error: profileError } = await supabaseAdmin
       .from('profiles')
       .upsert({
         id: user.id,
         org_id: venueInvite.org_id,
         venue_id: venueInvite.venue_id,
-        role: inviteRole,
+        role: profileRole,
         email: user.email ?? undefined,
         full_name: user.user_metadata?.full_name ?? undefined,
       }, { onConflict: 'id' })
+    if (profileError) throw new Error(`Profile update failed: ${profileError.message}`)
 
     await supabaseAdmin
       .from('venue_invites')
@@ -153,16 +164,18 @@ export async function joinWithInvite(formData: FormData) {
     if (orgInvite.expires_at && orgInvite.expires_at <= nowIso) return false
 
     const inviteRole = orgInvite.role || 'staff'
-    await supabaseAdmin
+    const profileRole = toProfileRole(inviteRole)
+    const { error: profileError } = await supabaseAdmin
       .from('profiles')
       .upsert({
         id: user.id,
         org_id: orgInvite.org_id,
         venue_id: null,
-        role: inviteRole,
+        role: profileRole,
         email: user.email ?? undefined,
         full_name: user.user_metadata?.full_name ?? undefined,
       }, { onConflict: 'id' })
+    if (profileError) throw new Error(`Profile update failed: ${profileError.message}`)
 
     await supabaseAdmin
       .from('org_invites')
@@ -207,16 +220,18 @@ export async function joinWithInvite(formData: FormData) {
       )
     if (staffError) throw new Error(staffError.message)
 
-    await supabaseAdmin
+    const profileRole = toProfileRole(role === 'venue_owner' ? 'venue_owner' : 'staff')
+    const { error: profileError } = await supabaseAdmin
       .from('profiles')
       .upsert({
         id: user.id,
         org_id: venue.org_id,
         venue_id: venue.id,
-        role: role === 'venue_owner' ? 'venue_owner' : 'staff',
+        role: profileRole,
         email: user.email ?? undefined,
         full_name: user.user_metadata?.full_name ?? undefined,
       }, { onConflict: 'id' })
+    if (profileError) throw new Error(`Profile update failed: ${profileError.message}`)
 
     console.log(`[Onboarding] User ${user.id} joined venue ${venue.id} as ${role}`)
   } catch (err) {

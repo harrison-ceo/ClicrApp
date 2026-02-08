@@ -214,9 +214,6 @@ export default function AreasPage() {
                     return (
                         <Link key={area.id} href={`/areas/${area.id}`} className="group relative block">
                             <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-xl relative overflow-hidden transition-all duration-300 group-hover:bg-slate-800/80 group-hover:border-primary/50 group-hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]">
-                                <div className="absolute top-0 left-0 h-1 w-full bg-slate-800">
-                                    <div className={cn("h-full transition-all duration-500", statusColor)} style={{ width: `${Math.min(percentage ?? 0, 100)}%` }} />
-                                </div>
 
                                 <div className="flex items-start justify-between mb-4 mt-2">
                                     <div>

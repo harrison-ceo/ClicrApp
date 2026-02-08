@@ -1,4 +1,14 @@
 -- Normalize role checks for org owners/managers across RLS and functions.
+-- Drop policies created by remote_schema so our replacements are the only ones.
+DROP POLICY IF EXISTS "Org admins can see all venues in their org" ON public.venues;
+DROP POLICY IF EXISTS "Users can only see venues in their organization" ON public.venues;
+DROP POLICY IF EXISTS "Venues: org owner manage" ON public.venues;
+DROP POLICY IF EXISTS "Venues: select by org or staff" ON public.venues;
+DROP POLICY IF EXISTS "venue_select_final" ON public.venues;
+DROP POLICY IF EXISTS "View areas if in org or assigned to venue" ON public.areas;
+DROP POLICY IF EXISTS "area_select_final" ON public.areas;
+DROP POLICY IF EXISTS "Venue owners can manage devices" ON public.devices;
+DROP POLICY IF EXISTS "device_select_final" ON public.devices;
 
 -- Venues
 DROP POLICY IF EXISTS "Venues: select by role access" ON public.venues;
