@@ -4,13 +4,14 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, RotateCcw, User, Users } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Users } from 'lucide-react'
 
 type DeviceRow = { id: string; area_id: string; name: string }
 type AreaRow = {
   id: string
   name: string
   current_occupancy: number
+  capacity?: number | null
   count_male?: number
   count_female?: number
 }
@@ -41,7 +42,7 @@ export default function ClicrDetailPage() {
     setDevice(dev as DeviceRow)
     const { data: areaData, error: areaErr } = await supabase
       .from('areas')
-      .select('id, name, current_occupancy, count_male, count_female')
+      .select('id, name, current_occupancy, count_male, count_female, capacity')
       .eq('id', (dev as DeviceRow).area_id)
       .single()
     if (areaErr || !areaData) {
@@ -62,11 +63,15 @@ export default function ClicrDetailPage() {
 
   useEffect(() => {
     if (!id) {
-      setLoading(false)
-      setError('Invalid device id')
+      queueMicrotask(() => {
+        setLoading(false)
+        setError('Invalid device id')
+      })
       return
     }
-    fetchData()
+    queueMicrotask(() => {
+      fetchData()
+    })
   }, [id, fetchData])
 
   const updateAreaCount = useCallback(
@@ -90,15 +95,19 @@ export default function ClicrDetailPage() {
       const areaId = area.id
       const deviceId = device.id
       ;(async () => {
-        await supabase.rpc('update_area_occupancy', {
+        const { error: rpcError } = await supabase.rpc('update_area_occupancy', {
           p_area_id: areaId,
           p_device_id: deviceId,
           p_count_male: male,
           p_count_female: female,
         })
+        if (rpcError) {
+          setError(rpcError.message)
+          fetchData()
+        }
       })()
     },
-    [area, device]
+    [area, device, fetchData]
   )
 
   const clearCount = useCallback(() => {
@@ -117,15 +126,18 @@ export default function ClicrDetailPage() {
     const areaId = area.id
     const deviceId = device.id
     ;(async () => {
-      await supabase.rpc('update_area_occupancy', {
+      const { error: rpcError } = await supabase.rpc('update_area_occupancy', {
         p_area_id: areaId,
         p_device_id: deviceId,
         p_count_male: 0,
         p_count_female: 0,
       })
+      if (rpcError) {
+        setError(rpcError.message)
+        fetchData()
+      }
     })()
-  }, [area, device])
-
+  }, [area, device, fetchData])
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center text-slate-500">
@@ -137,9 +149,9 @@ export default function ClicrDetailPage() {
   if (error || !device || !area) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center text-slate-500 gap-6 p-6">
-        <h1 className="text-xl font-bold text-white">Device not found</h1>
+        <h1 className="text-xl font-bold text-white">Unable to load clicker</h1>
         <p className="text-slate-400 text-center max-w-md">
-          This device may have been removed or you don&apos;t have access.
+          {error ?? 'This device may have been removed or you do not have access.'}
         </p>
         <Link href="/clicr" className="text-primary hover:underline font-medium">
           Back to Clicrs
@@ -151,10 +163,11 @@ export default function ClicrDetailPage() {
   const male = area.count_male ?? 0
   const female = area.count_female ?? 0
   const total = area.current_occupancy ?? male + female
+  const capacity = area.capacity ?? 0
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col p-6">
-      <div className="flex items-center gap-4 mb-8">
+    <div className="min-h-screen bg-[#0b0b0f] text-white flex flex-col p-6">
+      <div className="flex items-center gap-4">
         <Link
           href="/clicr"
           className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
@@ -162,96 +175,82 @@ export default function ClicrDetailPage() {
         >
           <ArrowLeft className="w-5 h-5" />
         </Link>
-        <div>
-          <h1 className="text-xl font-bold">{area.name}</h1>
-          <p className="text-sm text-slate-500">Clicker: {device.name}</p>
+      </div>
+
+      <div className="flex-1 flex flex-col items-center justify-center gap-8">
+        <div className="text-center space-y-2">
+          <div className="flex items-center justify-center gap-2 text-primary">
+            <Users className="w-5 h-5" />
+            <h1 className="text-2xl font-semibold">{area.name}</h1>
+          </div>
+          <p className="text-slate-500 text-sm">
+            {device.name}
+            {capacity > 0 ? ` • Capacity: ${capacity}` : ''}
+          </p>
         </div>
-      </div>
 
-      {/* Total occupancy for this area */}
-      <div className="flex flex-col items-center justify-center py-8 mb-10">
-        <span className="text-slate-500 text-sm font-medium uppercase tracking-wider mb-2">
-          Area occupancy
-        </span>
-        <span className="text-6xl md:text-7xl font-mono font-bold tabular-nums text-white">
-          {total}
-        </span>
-        <p className="text-slate-500 text-xs mt-2">Shared by all clickers in this area</p>
-      </div>
-
-      {/* Male row */}
-      <div className="max-w-sm mx-auto w-full mb-6">
-        <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-slate-800">
-              <User className="w-5 h-5 text-blue-400" />
+        <div className="w-full max-w-md rounded-[32px] bg-gradient-to-b from-white/5 to-white/0 border border-white/10 p-8 shadow-2xl">
+          <div className="text-center space-y-4">
+            <div className="text-xs tracking-[0.3em] text-slate-500 uppercase">Occupancy</div>
+            <div className="text-7xl md:text-8xl font-mono font-bold tabular-nums text-white">
+              {total}
             </div>
-            <span className="font-medium text-white">Male</span>
-          </div>
-          <span className="text-2xl font-mono font-bold tabular-nums text-white w-12 text-center">
-            {male}
-          </span>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              disabled={male <= 0}
-              onClick={() => updateAreaCount('male', -1)}
-              className="min-w-[3.5rem] min-h-[3.5rem] w-14 h-14 rounded-xl bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 font-bold text-xl disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-[transform,colors] duration-75 touch-manipulation select-none"
-            >
-              −
-            </button>
-            <button
-              type="button"
-              onClick={() => updateAreaCount('male', 1)}
-              className="min-w-[3.5rem] min-h-[3.5rem] w-14 h-14 rounded-xl bg-slate-800 hover:bg-blue-500/20 text-slate-300 hover:text-blue-400 font-bold text-xl active:scale-95 transition-[transform,colors] duration-75 touch-manipulation select-none"
-            >
-              +
-            </button>
           </div>
         </div>
-      </div>
 
-      {/* Female row */}
-      <div className="max-w-sm mx-auto w-full">
-        <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-slate-800">
-              <Users className="w-5 h-5 text-pink-400" />
+        <div className="w-full max-w-md space-y-4">
+          <div className="flex items-center justify-between gap-4 rounded-2xl bg-white/5 border border-white/10 px-4 py-3">
+            <div className="text-sm font-medium text-slate-300">Male</div>
+            <div className="text-2xl font-mono font-bold tabular-nums text-white">{male}</div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={male <= 0}
+                onClick={() => updateAreaCount('male', -1)}
+                className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 text-xl text-slate-200 hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98] transition-[transform,colors] duration-75 touch-manipulation select-none"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                onClick={() => updateAreaCount('male', 1)}
+                className="w-12 h-12 rounded-xl bg-white text-black text-xl font-semibold hover:bg-white/90 active:scale-[0.98] transition-[transform,colors] duration-75 touch-manipulation select-none"
+              >
+                +
+              </button>
             </div>
-            <span className="font-medium text-white">Female</span>
           </div>
-          <span className="text-2xl font-mono font-bold tabular-nums text-white w-12 text-center">
-            {female}
-          </span>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              disabled={female <= 0}
-              onClick={() => updateAreaCount('female', -1)}
-              className="min-w-[3.5rem] min-h-[3.5rem] w-14 h-14 rounded-xl bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 font-bold text-xl disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-[transform,colors] duration-75 touch-manipulation select-none"
-            >
-              −
-            </button>
-            <button
-              type="button"
-              onClick={() => updateAreaCount('female', 1)}
-              className="min-w-[3.5rem] min-h-[3.5rem] w-14 h-14 rounded-xl bg-slate-800 hover:bg-pink-500/20 text-slate-300 hover:text-pink-400 font-bold text-xl active:scale-95 transition-[transform,colors] duration-75 touch-manipulation select-none"
-            >
-              +
-            </button>
+
+          <div className="flex items-center justify-between gap-4 rounded-2xl bg-white/5 border border-white/10 px-4 py-3">
+            <div className="text-sm font-medium text-slate-300">Female</div>
+            <div className="text-2xl font-mono font-bold tabular-nums text-white">{female}</div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={female <= 0}
+                onClick={() => updateAreaCount('female', -1)}
+                className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 text-xl text-slate-200 hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98] transition-[transform,colors] duration-75 touch-manipulation select-none"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                onClick={() => updateAreaCount('female', 1)}
+                className="w-12 h-12 rounded-xl bg-white text-black text-xl font-semibold hover:bg-white/90 active:scale-[0.98] transition-[transform,colors] duration-75 touch-manipulation select-none"
+              >
+                +
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Clear count */}
-      <div className="max-w-sm mx-auto w-full mt-8">
         <button
           type="button"
           onClick={clearCount}
           disabled={total === 0}
-          className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-400 hover:text-white font-medium text-sm disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98] transition-[transform,colors] duration-75 touch-manipulation select-none border border-slate-700/80"
+          className="w-full max-w-md flex items-center justify-center gap-2 py-3 rounded-2xl bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98] transition-[transform,colors] duration-75 touch-manipulation select-none"
         >
-          <RotateCcw className="w-4 h-4 shrink-0" />
+          <RotateCcw className="w-4 h-4" />
           Clear count
         </button>
       </div>

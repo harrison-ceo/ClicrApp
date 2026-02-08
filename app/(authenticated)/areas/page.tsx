@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Area } from '@/lib/types';
 import { createClient } from '@/lib/supabase/client';
+import { useRole } from '@/components/RoleContext';
 
 type VenueRow = { id: string; name: string };
 
@@ -29,6 +30,8 @@ const defaultNewArea: NewAreaForm = {
 };
 
 export default function AreasPage() {
+    const role = useRole();
+    const isStaff = role === 'staff';
     const [search, setSearch] = useState('');
     const [filterVenue, setFilterVenue] = useState('ALL');
     const [areas, setAreas] = useState<Area[]>([]);
@@ -101,14 +104,16 @@ export default function AreasPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <button
-                        type="button"
-                        onClick={() => setAddModalOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors nowrap"
-                    >
-                        <Plus className="w-4 h-4" />
-                        Add Area
-                    </button>
+                    {!isStaff && (
+                        <button
+                            type="button"
+                            onClick={() => setAddModalOpen(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors nowrap"
+                        >
+                            <Plus className="w-4 h-4" />
+                            Add Area
+                        </button>
+                    )}
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                         <input
@@ -218,7 +223,7 @@ export default function AreasPage() {
             )}
 
             {/* Add Area modal */}
-            {addModalOpen && (
+            {!isStaff && addModalOpen && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
                     onClick={() => !saving && setAddModalOpen(false)}

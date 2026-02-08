@@ -1,6 +1,6 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -37,6 +37,24 @@ export function AppLayout({ children, role = null }: Readonly<{ children: React.
     const { currentUser } = useApp();
     const supabase = createClient();
 
+    const isStaff = role === 'staff';
+    const staffAllowedPrefixes = useMemo(() => ['/areas', '/clicr', '/support', '/banning'], []);
+    const isStaffAllowed = useMemo(
+        () => staffAllowedPrefixes.some((prefix) => pathname.startsWith(prefix)),
+        [pathname, staffAllowedPrefixes]
+    );
+
+    useEffect(() => {
+        if (isStaff && !isStaffAllowed) {
+            router.replace('/areas');
+        }
+    }, [isStaff, isStaffAllowed, router]);
+
+    const navItems = useMemo(() => {
+        if (!isStaff) return NAV_ITEMS;
+        return NAV_ITEMS.filter((item) => staffAllowedPrefixes.includes(item.href));
+    }, [isStaff, staffAllowedPrefixes]);
+
     const handleSignOut = async () => {
         await supabase.auth.signOut();
         router.refresh();
@@ -64,7 +82,7 @@ export function AppLayout({ children, role = null }: Readonly<{ children: React.
                 </div>
 
                 <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-                    {NAV_ITEMS.map((item) => {
+                    {navItems.map((item) => {
                         const isActive = pathname.startsWith(item.href);
                         return (
                             <Link
@@ -109,7 +127,9 @@ export function AppLayout({ children, role = null }: Readonly<{ children: React.
             {/* No 'fixed'. Just sits at the bottom of the flex column. */}
             <nav className="md:hidden flex-none bg-[#0f1116] border-t border-white/10 pb-[env(safe-area-inset-bottom)] z-50">
                 <div className="flex justify-around items-center p-2">
-                    {NAV_ITEMS.filter(i => !['Venues', 'Areas'].includes(i.label)).map((item) => {
+                    {navItems
+                        .filter((item) => !['Venues', 'Areas'].includes(item.label))
+                        .map((item) => {
                         const isActive = pathname.startsWith(item.href);
                         return (
                             <Link

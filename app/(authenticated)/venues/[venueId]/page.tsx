@@ -15,6 +15,9 @@ import {
   Users,
   RefreshCw,
   MapPin,
+  Copy,
+  Check,
+  Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import VenueAreas from './_components/VenueAreas'
@@ -26,6 +29,8 @@ type Venue = {
   address: string | null
   capacity: number
   current_occupancy: number
+  current_male_count?: number | null
+  current_female_count?: number | null
   org_id: string | null
   owner_id: string | null
   created_at?: string
@@ -66,7 +71,7 @@ export default function VenueDetailPage() {
     const supabase = createClient()
     const { data, error: e } = await supabase
       .from('venues')
-      .select('id, name, address, capacity, current_occupancy, org_id, owner_id, created_at')
+      .select('id, name, address, capacity, current_occupancy, current_male_count, current_female_count, org_id, owner_id, created_at')
       .eq('id', venueId)
       .single()
     if (e) {
@@ -80,7 +85,9 @@ export default function VenueDetailPage() {
   }, [venueId])
 
   useEffect(() => {
-    fetchVenue()
+    queueMicrotask(() => {
+      fetchVenue()
+    })
   }, [fetchVenue])
 
   if (loading) {
@@ -181,6 +188,8 @@ function VenueOverviewTab({
 }) {
   const [occupancy, setOccupancy] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  const [logs, setLogs] = useState<LogRow[]>([])
+  const [logsLoading, setLogsLoading] = useState(true)
 
   useEffect(() => {
     const supabase = createClient()
@@ -204,6 +213,29 @@ function VenueOverviewTab({
     }
   }, [venueId])
 
+  useEffect(() => {
+    const supabase = createClient()
+    let cancelled = false
+    supabase
+      .from('occupancy_logs')
+      .select('id, venue_id, delta, source, created_at, gender')
+      .eq('venue_id', venueId)
+      .order('created_at', { ascending: false })
+      .limit(12)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load occupancy_logs', error)
+        }
+        console.log(JSON.stringify(data, null, 2))
+        if (cancelled) return
+        setLogs((data ?? []) as LogRow[])
+        setLogsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [venueId])
+
   const current = occupancy ?? venue.current_occupancy ?? 0
   const cap = venue.capacity || 0
   const pct = cap > 0 ? (current / cap) * 100 : 0
@@ -211,46 +243,139 @@ function VenueOverviewTab({
   if (pct > 90) barColor = 'bg-red-500'
   else if (pct > 75) barColor = 'bg-amber-500'
 
+  const mockTotalEntries = 160
+  const mockScansProcessed = 164
+  const mockBannedHits = 1
+
+  const ageBuckets = [
+    { label: '18-20', value: 12 },
+    { label: '21-25', value: 45 },
+    { label: '26-30', value: 32 },
+    { label: '31-40', value: 18 },
+    { label: '40+', value: 8 },
+  ]
+  const maxAge = Math.max(...ageBuckets.map((b) => b.value))
+
+  const maleCount = venue.current_male_count ?? 0
+  const femaleCount = venue.current_female_count ?? 0
+  const genderTotal = maleCount + femaleCount
+  const malePct = genderTotal > 0 ? Math.round((maleCount / genderTotal) * 100) : 0
+  const femalePct = genderTotal > 0 ? Math.round((femaleCount / genderTotal) * 100) : 0
+
+
+  const liveLogContent = () => {
+    if (logsLoading) return <div className="text-sm text-slate-500">Loading events…</div>
+    if (logs.length === 0) return <div className="text-sm text-slate-500">No recent events.</div>
+    return logs.map((log) => {
+      const type = log.delta >= 0 ? 'ENTRY' : 'EXIT'
+      const time = new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      return (
+        <div key={log.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+          <div className={cn('text-xs font-semibold', log.delta >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+            {type}
+          </div>
+          <div className="text-xs text-slate-500 mt-1">{time}</div>
+        </div>
+      )
+    })
+  }
+
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl">
-          <div className="text-xs text-slate-500 mb-1">Live occupancy</div>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
+          <div className="text-xs text-slate-500 uppercase tracking-widest">Live Occupancy</div>
           {loading && occupancy === null ? (
-            <div className="text-2xl font-bold font-mono text-slate-500">—</div>
+            <div className="text-3xl font-bold text-slate-500 mt-2">—</div>
           ) : (
-            <div className="text-2xl font-bold font-mono text-white">
-              {current}
-              <span className="text-slate-500 text-sm font-sans ml-1">/ {cap > 0 ? cap : '∞'}</span>
-            </div>
+            <div className="text-3xl font-bold text-white mt-2">{current}</div>
           )}
+          {/* <div className="text-xs text-slate-500 mt-1">Peak: {cap > 0 ? cap : '—'}</div> */}
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
+          <div className="text-xs text-slate-500 uppercase tracking-widest">Total Entries</div>
+          <div className="text-3xl font-bold text-emerald-400 mt-2">{mockTotalEntries}</div>
+          <div className="text-xs text-slate-500 mt-1">Exits: —</div>
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
+          <div className="text-xs text-slate-500 uppercase tracking-widest">Scans Processed</div>
+          <div className="text-3xl font-bold text-indigo-400 mt-2">{mockScansProcessed}</div>
+          <div className="text-xs text-slate-500 mt-1">5% Denied</div>
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
+          <div className="text-xs text-slate-500 uppercase tracking-widest">Banned Hits</div>
+          <div className="text-3xl font-bold text-red-400 mt-2">{mockBannedHits}</div>
+          <div className="text-xs text-slate-500 mt-1">Flagged instantly</div>
         </div>
       </div>
-      {cap > 0 && (
-        <div className="space-y-2">
-          <div className="text-xs text-slate-500">Capacity usage</div>
-          <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className={cn('h-full rounded-full transition-all', barColor)}
-              style={{ width: `${Math.min(pct, 100)}%` }}
-            />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6">
+            <div className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-slate-400" />
+              Age Distribution
+            </div>
+            <div className="space-y-4">
+              {ageBuckets.map((b) => (
+                <div key={b.label} className="flex items-center gap-4">
+                  <div className="w-12 text-xs text-slate-400">{b.label}</div>
+                  <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-500"
+                      style={{ width: `${(b.value / maxAge) * 100}%` }}
+                    />
+                  </div>
+                  <div className="w-8 text-right text-xs text-slate-400">{b.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6">
+            <div className="text-sm font-semibold text-white mb-4">Gender Breakdown</div>
+            <div className="w-full h-3 rounded-full overflow-hidden bg-slate-800 flex">
+              <div className="h-full bg-blue-500" style={{ width: `${malePct}%` }} />
+              <div className="h-full bg-pink-500" style={{ width: `${femalePct}%` }} />
+            </div>
+            <div className="flex justify-between text-xs text-slate-400 mt-3">
+              <span>Male {malePct}%</span>
+              <span>Female {femalePct}%</span>
+            </div>
           </div>
         </div>
-      )}
-      {venue.address && (
-        <div className="flex items-center gap-2 text-slate-400 text-sm">
-          <MapPin className="w-4 h-4 shrink-0" />
-          {venue.address}
+
+        <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6">
+          <div className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>Live Event Log</span>
+          </div>
+          <div className="space-y-3 max-h-[360px] overflow-y-auto pr-2">
+            {liveLogContent()}
+          </div>
         </div>
-      )}
-      <button
-        type="button"
-        onClick={onRefresh}
-        className="text-sm text-primary hover:underline flex items-center gap-2"
-      >
-        <RefreshCw className="w-4 h-4" />
-        Refresh
-      </button>
+      </div>
+
+      <div className="flex items-center gap-3 text-sm text-slate-500">
+        {cap > 0 && (
+          <div className="flex items-center gap-2">
+            <div className="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div className={cn('h-full rounded-full transition-all', barColor)} style={{ width: `${Math.min(pct, 100)}%` }} />
+            </div>
+            <span>{Math.round(pct)}%</span>
+          </div>
+        )}
+        {venue.address && (
+          <div className="flex items-center gap-2">
+            <MapPin className="w-4 h-4 shrink-0" />
+            {venue.address}
+          </div>
+        )}
+        <button type="button" onClick={onRefresh} className="text-primary hover:underline flex items-center gap-2">
+          <RefreshCw className="w-4 h-4" />
+          Refresh
+        </button>
+      </div>
     </div>
   )
 }
@@ -358,6 +483,11 @@ function VenueSettingsTab({ venue, onRefresh }: { venue: Venue; onRefresh: () =>
   const [address, setAddress] = useState(venue.address ?? '')
   const [capacity, setCapacity] = useState(venue.capacity ?? 0)
   const [saving, setSaving] = useState(false)
+  const [inviteLink, setInviteLink] = useState('')
+  const [inviteRole, setInviteRole] = useState<'staff' | 'venue_owner'>('staff')
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteError, setInviteError] = useState('')
+  const [inviteCopied, setInviteCopied] = useState(false)
   useEffect(() => {
     setName(venue.name)
     setAddress(venue.address ?? '')
@@ -425,11 +555,95 @@ function VenueSettingsTab({ venue, onRefresh }: { venue: Venue; onRefresh: () =>
           {saving ? 'Saving…' : 'Save changes'}
         </button>
       </form>
+
+      <div className="border-t border-slate-800 pt-6 space-y-4">
+        <h3 className="text-lg font-semibold text-white">Invite to venue</h3>
+        <p className="text-sm text-slate-400">
+          Generate a one-time onboarding link for this venue.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <select
+            value={inviteRole}
+            onChange={(e) => setInviteRole(e.target.value as 'staff' | 'venue_owner')}
+            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-300"
+          >
+            <option value="staff">Venue staff</option>
+            <option value="venue_owner">Venue owner</option>
+          </select>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                setInviteLoading(true)
+                setInviteError('')
+                const supabase = createClient()
+                const { data: authData, error: authError } = await supabase.auth.getUser()
+                if (authError || !authData?.user) throw new Error('Not authenticated')
+                if (!venue.org_id) throw new Error('Organization not found')
+
+                const code = crypto.randomUUID()
+                const { error } = await supabase.from('venue_invites').insert({
+                  org_id: venue.org_id,
+                  venue_id: venue.id,
+                  code,
+                  role: inviteRole,
+                  created_by: authData.user.id,
+                })
+                if (error) throw new Error(error.message)
+
+                const baseUrl =
+                  process.env.NEXT_PUBLIC_APP_URL ||
+                  (typeof globalThis !== 'undefined' && 'location' in globalThis
+                    ? (globalThis as { location: Location }).location.origin
+                    : 'http://localhost:3000')
+                setInviteLink(`${baseUrl}/onboarding?code=${code}`)
+              } catch (err) {
+                setInviteError((err as Error).message || 'Failed to create invite link')
+              } finally {
+                setInviteLoading(false)
+              }
+            }}
+            disabled={inviteLoading}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg disabled:opacity-50"
+          >
+            {inviteLoading ? 'Creating…' : 'Generate venue invite link'}
+          </button>
+        </div>
+        {inviteLink && (
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={inviteLink}
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-300"
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <button
+              type="button"
+              onClick={async () => {
+                navigator.clipboard
+                  .writeText(inviteLink)
+                  .then(() => {
+                    setInviteCopied(true)
+                    setTimeout(() => setInviteCopied(false), 1500)
+                  })
+                  .catch(() => {
+                    setInviteError('Copy failed. Please select and copy the link.')
+                  })
+              }}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg"
+              title="Copy invite link"
+            >
+              {inviteCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+            </button>
+          </div>
+        )}
+        {inviteError && <p className="text-sm text-red-400">{inviteError}</p>}
+      </div>
     </div>
   )
 }
 
-type LogRow = { id: string; venue_id: string; delta: number; source: string | null; created_at: string }
+type LogRow = { id: string; venue_id: string; delta: number; source: string | null; created_at: string; gender?: string | null }
 
 function VenueLogsTab({ venueId }: { venueId: string }) {
   const [logs, setLogs] = useState<LogRow[]>([])

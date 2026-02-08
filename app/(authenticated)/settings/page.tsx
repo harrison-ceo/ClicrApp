@@ -1,14 +1,19 @@
 "use client";
 import React, { useState } from 'react';
 import { useApp } from '@/lib/store';
-import { Building2, Save, Users, UserPlus, Shield, Mail, Phone, Ban, History, AlertTriangle } from 'lucide-react';
+import { Building2, Save, Users, UserPlus, Shield, Mail, Phone, Ban, History, AlertTriangle, Copy, Check } from 'lucide-react';
 import { Role, User, BanRecord, BanScope } from '@/lib/types';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
 
 export default function SettingsPage() {
     const { business, users, addUser, currentUser, bans = [], addBan, venues } = useApp();
     const [activeTab, setActiveTab] = useState<'business' | 'users' | 'profile'>('business');
+    const [orgInviteLink, setOrgInviteLink] = useState('');
+    const [orgInviteLoading, setOrgInviteLoading] = useState(false);
+    const [orgInviteError, setOrgInviteError] = useState('');
+    const [orgInviteCopied, setOrgInviteCopied] = useState(false);
 
     // Delete Self State
     const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
@@ -145,6 +150,50 @@ export default function SettingsPage() {
     // Loading State Handling - MOVED AFTER ALL HOOKS
     if (!business || !users) return <div className="p-8 text-white flex items-center gap-4"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div> Loading Settings...</div>;
 
+    const handleCreateOrgInvite = async () => {
+        try {
+            setOrgInviteLoading(true);
+            setOrgInviteError('');
+            const supabase = createClient();
+            const { data: authData, error: authError } = await supabase.auth.getUser();
+            if (authError || !authData?.user) throw new Error('Not authenticated');
+            if (!business?.id) throw new Error('Organization not found');
+
+            const code = crypto.randomUUID();
+            const { error } = await supabase.from('org_invites').insert({
+                org_id: business.id,
+                code,
+                role: 'staff',
+                created_by: authData.user.id,
+            });
+            if (error) throw new Error(error.message);
+
+            const baseUrl =
+                process.env.NEXT_PUBLIC_APP_URL ||
+                (typeof globalThis !== 'undefined' && 'location' in globalThis
+                    ? (globalThis as Window).location.origin
+                    : 'http://localhost:3000');
+            setOrgInviteLink(`${baseUrl}/onboarding?code=${code}`);
+        } catch (err) {
+            setOrgInviteError((err as Error).message || 'Failed to create invite link');
+        } finally {
+            setOrgInviteLoading(false);
+        }
+    };
+
+    const handleCopyOrgInvite = async () => {
+        if (!orgInviteLink) return;
+        navigator.clipboard
+            .writeText(orgInviteLink)
+            .then(() => {
+                setOrgInviteCopied(true);
+                setTimeout(() => setOrgInviteCopied(false), 1500);
+            })
+            .catch(() => {
+                setOrgInviteError('Copy failed. Please select and copy the link.');
+            });
+    };
+
     return (
         <div className="space-y-6">
             <h1 className="text-3xl font-bold text-white">Settings</h1>
@@ -211,6 +260,42 @@ export default function SettingsPage() {
                         <button className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg mt-4 font-medium transition-colors">
                             <Save className="w-4 h-4" /> Save Changes
                         </button>
+                    </div>
+
+                    <div className="mt-8 border-t border-slate-800 pt-6 space-y-4">
+                        <h3 className="text-lg font-semibold text-white">Invite to organization</h3>
+                        <p className="text-sm text-slate-400">
+                            Generate a one-time onboarding link for your organization.
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <button
+                                type="button"
+                                onClick={handleCreateOrgInvite}
+                                disabled={orgInviteLoading}
+                                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg disabled:opacity-50"
+                            >
+                                {orgInviteLoading ? 'Creating…' : 'Generate org invite link'}
+                            </button>
+                            {orgInviteLink && (
+                                <div className="flex-1 flex gap-2">
+                                    <input
+                                        readOnly
+                                        value={orgInviteLink}
+                                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-300"
+                                        onFocus={(e) => e.currentTarget.select()}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleCopyOrgInvite}
+                                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg"
+                                        title="Copy invite link"
+                                    >
+                                        {orgInviteCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        {orgInviteError && <p className="text-sm text-red-400">{orgInviteError}</p>}
                     </div>
                 </div>
             )}

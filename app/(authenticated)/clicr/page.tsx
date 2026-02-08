@@ -16,23 +16,54 @@ export default function ClicrListPage() {
   const [devices, setDevices] = useState<DeviceRow[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-    const supabase = createClient()
-    ;(async () => {
-      const [vRes, aRes, dRes] = await Promise.all([
-        supabase.from('venues').select('id, name'),
-        supabase.from('areas').select('id, name, venue_id, current_occupancy'),
-        supabase.from('devices').select('id, area_id, name, flow_mode, current_count'),
-      ])
-      if (cancelled) return
-      setVenues((vRes.data ?? []) as VenueRow[])
-      setAreas((aRes.data ?? []) as AreaRow[])
-      setDevices((dRes.data ?? []) as DeviceRow[])
-      setLoading(false)
-    })()
-    return () => { cancelled = true }
-  }, [])
+useEffect(() => {
+  let cancelled = false;
+  const supabase = createClient();
+
+  const fetchData = async () => {
+    setLoading(true);
+
+    // 1. Fetch Venues first (RLS handles the "which org" logic)
+    const { data: venuesData, error: vError } = await supabase
+      .from('venues')
+      .select('id, name');
+
+    if (cancelled || vError) return;
+    setVenues((venuesData ?? []) as VenueRow[]);
+
+    const venueIds = venuesData?.map((v) => v.id) || [];
+
+    if (venueIds.length > 0) {
+
+      const [aRes, dRes] = await Promise.all([
+        supabase
+          .from('areas')
+          .select('id, name, venue_id, current_occupancy')
+          .in('venue_id', venueIds),
+
+        supabase
+          .from('devices')
+          .select('id, area_id, name, flow_mode, current_count')
+      ]);
+
+      if (cancelled) return;
+
+      setAreas((aRes.data ?? []) as AreaRow[]);
+      setDevices((dRes.data ?? []) as DeviceRow[]);
+    } else {
+      setAreas([]);
+      setDevices([]);
+    }
+
+    setLoading(false);
+  };
+
+  fetchData();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   const venuesWithContent = venues.map((venue) => {
     const venueAreas = areas.filter((a) => a.venue_id === venue.id)

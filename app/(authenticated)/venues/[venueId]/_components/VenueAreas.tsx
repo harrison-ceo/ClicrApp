@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Plus, Edit2, Trash2, Move, MonitorSmartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useRole } from '@/components/RoleContext';
 
 type AreaRow = Area & { capacity?: number; capacity_max?: number; percent_full?: number; area_type?: string };
 
@@ -23,6 +24,8 @@ type VenueAreaDisplay = {
 };
 
 export default function VenueAreas({ venueId, venueCapacity = 0 }: { venueId: string; venueCapacity?: number }) {
+    const role = useRole();
+    const isStaff = role === 'staff';
     const [areas, setAreas] = useState<AreaRow[]>([]);
     const [deviceCountByAreaId, setDeviceCountByAreaId] = useState<Record<string, number>>({});
     const [loading, setLoading] = useState(true);
@@ -172,13 +175,15 @@ export default function VenueAreas({ venueId, venueCapacity = 0 }: { venueId: st
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-xl font-bold">Venue Areas</h2>
-                <button
-                    onClick={handleCreate}
-                    className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
-                >
-                    <Plus className="w-4 h-4" />
-                    Add Area
-                </button>
+                {!isStaff && (
+                    <button
+                        onClick={handleCreate}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Add Area
+                    </button>
+                )}
             </div>
 
             {fetchError && (

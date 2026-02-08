@@ -4,18 +4,15 @@ import React, { useEffect, useState, useRef } from 'react';
 
 import { useApp } from '@/lib/store';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Settings2, Plus, Minus, ScanFace, CheckCircle2, XCircle, ArrowUpCircle, ArrowDownCircle, Trash2, Layout, Link2, Unlink, ChevronDown, Check, Zap, Bug } from 'lucide-react';
+import { Settings2, Plus, Minus, XCircle, Check, Zap, Bug } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IDScanEvent } from '@/lib/types';
 import { parseAAMVA } from '@/lib/aamva';
 import { evaluateScan } from '@/lib/scan-service';
 import { Html5Qrcode } from 'html5-qrcode';
 import { getVenueCapacityRules } from '@/lib/capacity';
-import { tokens } from '@/lib/ui/tokens';
 import { MetricCard, ActionButton, OccupancyDisplay } from '@/lib/ui/components/ClicrComponents';
-import { ScannerResult, ScanStatus } from '@/lib/ui/components/ScannerResult';
-import { METRICS } from '@/lib/core/metrics';
-import { getTodayWindow } from '@/lib/core/time';
+import { ScannerResult } from '@/lib/ui/components/ScannerResult';
 
 // Mock data generator for simulation
 const generateMockID = () => {

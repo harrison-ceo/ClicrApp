@@ -5,8 +5,11 @@ import { createClient } from '@/utils/supabase/client';
 import { useApp } from '@/lib/store';
 import Link from 'next/link';
 import { Plus, Search, Filter, AlertTriangle, CheckCircle, XCircle, MoreVertical } from 'lucide-react';
+import { useRole } from '@/components/RoleContext';
 
 export default function BanningPage() {
+    const role = useRole();
+    const isStaff = role === 'staff';
     const { business } = useApp();
     const [bans, setBans] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -64,12 +67,14 @@ export default function BanningPage() {
                     <h1 className="text-3xl font-bold text-white">Ban Management</h1>
                     <p className="text-slate-400 mt-1">Manage prohibited patrons and 86 lists</p>
                 </div>
-                <Link
-                    href="/banning/new"
-                    className="bg-red-600 hover:bg-red-500 text-white font-bold px-6 py-3 rounded-xl flex items-center gap-2 shadow-lg shadow-red-900/20"
-                >
-                    <Plus className="w-5 h-5" /> Manual Ban
-                </Link>
+                {!isStaff && (
+                    <Link
+                        href="/banning/new"
+                        className="bg-red-600 hover:bg-red-500 text-white font-bold px-6 py-3 rounded-xl flex items-center gap-2 shadow-lg shadow-red-900/20"
+                    >
+                        <Plus className="w-5 h-5" /> Manual Ban
+                    </Link>
+                )}
             </div>
 
             {/* Filters */}

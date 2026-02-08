@@ -100,9 +100,9 @@ export default function VenueOverview({ venueId, setActiveTab }: { venueId: stri
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <KpiCard
                     title="Live Occupancy"
-                    value={currentOccupancy}
+                    value={currentOccupancy as number}
                     icon={Users}
-                    trend={currentOccupancy > 0 ? 'up' : 'neutral'}
+                    trend={currentOccupancy as number > 0 ? 'up' : 'neutral'}
                     className="bg-slate-900/50 border-slate-800"
                 />
                 <KpiCard

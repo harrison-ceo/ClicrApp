@@ -3,11 +3,14 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, MonitorSmartphone, LogIn, LogOut, ChevronDown, ChevronRight } from 'lucide-react'
+import { useRole } from '@/components/RoleContext'
 
 type AreaRow = { id: string; name: string; venue_id: string }
 type DeviceRow = { id: string; area_id: string; name: string; flow_mode: string; current_count: number; is_active: boolean }
 
 export default function VenueDevicesTab({ venueId }: { venueId: string }) {
+  const role = useRole()
+  const isStaff = role === 'staff'
   const [areas, setAreas] = useState<AreaRow[]>([])
   const [devices, setDevices] = useState<DeviceRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -144,17 +147,19 @@ export default function VenueDevicesTab({ venueId }: { venueId: string }) {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold text-white">Devices (Clickers)</h2>
-        <button
-          type="button"
-          onClick={() => {
-            setAddModalOpen(true)
-            if (areas.length > 0 && !newDeviceAreaId) setNewDeviceAreaId(areas[0].id)
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Device
-        </button>
+        {!isStaff && (
+          <button
+            type="button"
+            onClick={() => {
+              setAddModalOpen(true)
+              if (areas.length > 0 && !newDeviceAreaId) setNewDeviceAreaId(areas[0].id)
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Device
+          </button>
+        )}
       </div>
 
       {error && (
@@ -241,7 +246,7 @@ export default function VenueDevicesTab({ venueId }: { venueId: string }) {
         )
       })()}
 
-      {addModalOpen && (
+      {!isStaff && addModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
           onClick={() => !saving && setAddModalOpen(false)}

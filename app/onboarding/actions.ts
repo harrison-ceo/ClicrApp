@@ -5,6 +5,16 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
+function isNextRedirect(err: unknown): boolean {
+  return (
+    !!err &&
+    typeof err === 'object' &&
+    'digest' in err &&
+    typeof (err as { digest?: unknown }).digest === 'string' &&
+    (err as { digest: string }).digest.startsWith('NEXT_REDIRECT')
+  )
+}
+
 /** Extract invite code from form: raw code or "code" query param from pasted URL */
 function parseInviteCode(input: string): string {
   const trimmed = (input || '').trim()
@@ -89,7 +99,91 @@ export async function joinWithInvite(formData: FormData) {
   const code = parseInviteCode(rawCode)
   if (!code) return redirect('/onboarding?error=Please enter an invite code or paste the invite link')
 
+  const nowIso = new Date().toISOString()
+
+  const tryVenueInvite = async () => {
+    const { data: venueInvite } = await supabaseAdmin
+      .from('venue_invites')
+      .select('id, org_id, venue_id, role, is_active, expires_at')
+      .eq('code', code)
+      .single()
+
+    if (!venueInvite) return false
+    if (venueInvite.is_active === false) return false
+    if (venueInvite.expires_at && venueInvite.expires_at <= nowIso) return false
+
+    const inviteRole = venueInvite.role === 'venue_owner' ? 'venue_owner' : 'staff'
+    const { error: staffError } = await supabaseAdmin
+      .from('venue_staff')
+      .upsert(
+        { venue_id: venueInvite.venue_id, user_id: user.id, role: inviteRole },
+        { onConflict: 'venue_id,user_id' }
+      )
+    if (staffError) throw new Error(staffError.message)
+
+    await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        org_id: venueInvite.org_id,
+        venue_id: venueInvite.venue_id,
+        role: inviteRole,
+        email: user.email ?? undefined,
+        full_name: user.user_metadata?.full_name ?? undefined,
+      }, { onConflict: 'id' })
+
+    await supabaseAdmin
+      .from('venue_invites')
+      .update({ is_active: false, used_by: user.id, used_at: nowIso })
+      .eq('id', venueInvite.id)
+
+    console.log(`[Onboarding] User ${user.id} joined venue ${venueInvite.venue_id} via invite`)
+    return true
+  }
+
+  const tryOrgInvite = async () => {
+    const { data: orgInvite } = await supabaseAdmin
+      .from('org_invites')
+      .select('id, org_id, role, is_active, expires_at')
+      .eq('code', code)
+      .single()
+
+    if (!orgInvite) return false
+    if (orgInvite.is_active === false) return false
+    if (orgInvite.expires_at && orgInvite.expires_at <= nowIso) return false
+
+    const inviteRole = orgInvite.role || 'staff'
+    await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        org_id: orgInvite.org_id,
+        venue_id: null,
+        role: inviteRole,
+        email: user.email ?? undefined,
+        full_name: user.user_metadata?.full_name ?? undefined,
+      }, { onConflict: 'id' })
+
+    await supabaseAdmin
+      .from('org_invites')
+      .update({ is_active: false, used_by: user.id, used_at: nowIso })
+      .eq('id', orgInvite.id)
+
+    console.log(`[Onboarding] User ${user.id} joined org ${orgInvite.org_id} via invite`)
+    return true
+  }
+
   try {
+    if (await tryVenueInvite()) {
+      revalidatePath('/', 'layout')
+      return redirect('/dashboard')
+    }
+    if (await tryOrgInvite()) {
+      revalidatePath('/', 'layout')
+      return redirect('/dashboard')
+    }
+
+    // Back-compat: raw venue UUID code
     const isUuid = code.length === 36 && /^[0-9a-f-]{36}$/i.test(code)
     if (!isUuid) {
       return redirect('/onboarding?error=Invite code should be the venue ID (UUID) from your org owner. Paste the full invite link or the ID they shared.')
@@ -126,6 +220,7 @@ export async function joinWithInvite(formData: FormData) {
 
     console.log(`[Onboarding] User ${user.id} joined venue ${venue.id} as ${role}`)
   } catch (err) {
+    if (isNextRedirect(err)) throw err
     console.error('[Onboarding] Join error:', err)
     return redirect(`/onboarding?error=${encodeURIComponent((err as Error).message)}`)
   }
