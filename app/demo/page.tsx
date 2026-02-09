@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ShieldCheck, Zap, Smartphone, CheckCircle, XCircle, FileSpreadsheet, FileText, ArrowRight, RotateCcw } from 'lucide-react';
+import Image from 'next/image';
+import { ArrowLeft, Users, ShieldCheck, Zap, Smartphone, CheckCircle, XCircle, AlertTriangle, FileSpreadsheet, FileText, Download, Calendar, ArrowRight, RotateCcw, Building2, MapPin, Bluetooth } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from 'recharts';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -22,6 +23,14 @@ const STEPS: { id: Step; label: string }[] = [
     { id: 'CTA', label: 'Get Started' }
 ];
 
+
+const V4_MESSAGING = {
+    title: "Coming in V4.0",
+    body: "CLICR V4.0 supports an optional Bluetooth scanner for faster, more accurate door flow. Software-first by default.",
+    short: "V4.0: Optional Bluetooth scanner compatible.",
+    finePrint: "Demo uses simulated scanning."
+};
+
 const MOCK_IDS = {
     valid: { name: 'Sarah Jenkins', age: 24, dob: '1999-05-12', exp: '2028-01-01', status: 'VALID', city: 'Austin, TX' },
     underage: { name: 'Mike Ross', age: 19, dob: '2004-08-20', exp: '2026-05-15', status: 'UNDERAGE', city: 'Houston, TX' },
@@ -38,6 +47,8 @@ export default function InteractiveDemoPage() {
     // -- Occupancy State --
     const [occupancy, setOccupancy] = useState(482);
     const [capacity] = useState(650);
+    const [totalIn, setTotalIn] = useState(1243);
+    const [totalOut, setTotalOut] = useState(761);
     const [syncPulse, setSyncPulse] = useState(false);
     const [autoAddEnabled, setAutoAddEnabled] = React.useState(true);
 
@@ -78,16 +89,16 @@ export default function InteractiveDemoPage() {
     };
 
     // -- Scanner State --
-    const [scanResult, setScanResult] = useState<{ type: string; reason?: string; data: any } | null>(null);
+    const [scanResult, setScanResult] = useState<any>(null);
     const [isScanning, setIsScanning] = useState(false);
     const [bannedList, setBannedList] = useState<string[]>(['Alex Trouble']);
 
     // -- Banning Interaction State --
     const [showBanModal, setShowBanModal] = useState(false);
-
+    const [tempBanTarget, setTempBanTarget] = useState<any>(null);
 
     // -- Reporting State --
-
+    const [compareMode, setCompareMode] = useState(false);
 
     // -- Simulation Effects --
     useEffect(() => {
@@ -135,9 +146,14 @@ export default function InteractiveDemoPage() {
             {/* Nav */}
             <nav className="border-b border-white/10 bg-black/50 backdrop-blur-xl sticky top-0 z-50">
                 <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-                    <Link href="https://clicr.co" className="flex items-center gap-2 text-sm font-medium text-slate-400 hover:text-white transition-colors">
-                        <ArrowLeft className="w-4 h-4" /> Exit Demo
-                    </Link>
+                    <div className="flex items-center gap-4">
+                        <Link href="https://clicr.co" className="relative w-8 h-8">
+                            <Image src="/clicr-logo-white.png" alt="Clicr" fill className="object-contain" />
+                        </Link>
+                        <Link href="https://clicr.co" className="flex items-center gap-2 text-sm font-medium text-slate-400 hover:text-white transition-colors border-l border-white/10 pl-4">
+                            <ArrowLeft className="w-4 h-4" /> Exit Demo
+                        </Link>
+                    </div>
                     <div className="flex items-center gap-4">
                         {/* Progress Dots */}
                         <div className="hidden md:flex items-center gap-2">
@@ -165,20 +181,49 @@ export default function InteractiveDemoPage() {
                     >
                         {step === 'INTRO' && (
                             <div className="flex-1 flex flex-col items-center justify-center text-center space-y-8">
-                                <div className="p-6 bg-primary/10 rounded-full border border-primary/20 animate-pulse">
-                                    <Zap className="w-12 h-12 text-primary" />
+                                <div className="relative w-24 h-24 mb-4">
+                                    <Image
+                                        src="/clicr-logo-white.png"
+                                        alt="Clicr Logo"
+                                        fill
+                                        className="object-contain drop-shadow-[0_0_30px_rgba(255,255,255,0.3)]"
+                                        priority
+                                    />
                                 </div>
                                 <h1 className="text-5xl md:text-7xl font-bold tracking-tight">
-                                    Experience <span className="text-primary">CLICR</span>
+                                    Try Clicr in <span className="text-primary">60 seconds</span>
                                 </h1>
                                 <p className="text-xl text-slate-400 max-w-2xl leading-relaxed">
-                                    Take a 60-second interactive tour of the only platform that combines live occupancy showing, ID scanning, and banning into one synced system.
+                                    Tap to simulate live occupancy, ID scanning, and report generation in our interactive environment.
                                 </p>
+
+                                <div className="mt-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3 max-w-lg animate-in fade-in slide-in-from-bottom-4 flex items-center gap-3 text-left w-full mx-auto shadow-[0_0_20px_rgba(99,102,241,0.1)]">
+                                    <div className="p-2 bg-indigo-500/20 rounded-lg shrink-0">
+                                        <Bluetooth className="w-5 h-5 text-indigo-400" />
+                                    </div>
+                                    <div>
+                                        <div className="text-sm font-bold text-indigo-300">Coming in V4.0</div>
+                                        <div className="text-xs text-indigo-400/80 leading-snug">CLICR V4.0 supports an optional Bluetooth scanner. Software-first by default.</div>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap justify-center gap-3 my-6">
+                                    <span className="px-4 py-1.5 rounded-full bg-slate-900 border border-white/10 text-sm font-medium text-slate-300">
+                                        Clickers that communicate
+                                    </span>
+                                    <span className="px-4 py-1.5 rounded-full bg-slate-900 border border-white/10 text-sm font-medium text-slate-300">
+                                        ID Scanning that syncs
+                                    </span>
+                                    <span className="px-4 py-1.5 rounded-full bg-slate-900 border border-white/10 text-sm font-medium text-slate-300">
+                                        Reporting you can act on
+                                    </span>
+                                </div>
+
                                 <button
                                     onClick={handleNext}
-                                    className="group bg-white text-black px-8 py-4 rounded-full text-lg font-bold hover:scale-105 transition-all flex items-center gap-2"
+                                    className="group bg-white text-black px-8 py-4 rounded-full text-lg font-bold hover:scale-105 transition-all flex items-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.2)]"
                                 >
-                                    Start Interactive Tour <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                                    Start Interactive Demo <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                                 </button>
                             </div>
                         )}
@@ -192,50 +237,127 @@ export default function InteractiveDemoPage() {
                                     </div>
                                     <h2 className="text-4xl font-bold">Real-time Occupancy</h2>
                                     <p className="text-lg text-slate-400">
-                                        Track capacity across multiple areas. When door staff click &apos;+&apos; on their device, your dashboard updates instantly.
+                                        Track capacity across multiple areas. Tap the buttons on the simulator to see instant updates.
                                     </p>
-                                    <div className="p-6 bg-slate-900 border border-white/10 rounded-2xl space-y-4">
-                                        <div className="flex justify-between items-center text-sm text-slate-400">
-                                            <span>Simulating 3 Active Devices</span>
-                                            {syncPulse && <span className="text-primary animate-pulse">Syncing...</span>}
+
+                                    <div className="bg-slate-900/50 border border-white/10 rounded-2xl p-6">
+                                        <div className="flex items-center gap-4 mb-4">
+                                            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 font-bold">1</div>
+                                            <div>
+                                                <h3 className="font-bold text-white">Tap the Buttons</h3>
+                                                <p className="text-sm text-slate-400">Simulate a doorman counting guests.</p>
+                                            </div>
                                         </div>
-                                        <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
-                                            <div className="absolute top-0 left-0 h-full bg-primary transition-all duration-500" style={{ width: `${(occupancy / capacity) * 100}%` }} />
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center text-green-400 font-bold">2</div>
+                                            <div>
+                                                <h3 className="font-bold text-white">Watch Stats Update</h3>
+                                                <p className="text-sm text-slate-400">Total In/Out tracks automatically.</p>
+                                            </div>
                                         </div>
-                                        <div className="text-xs text-center text-slate-500">Updates automatically when simulation runs</div>
                                     </div>
-                                    <button onClick={handleNext} className="border border-white/20 hover:bg-white/5 text-white py-3 px-6 rounded-lg transition-colors font-bold w-full md:w-auto">Next: ID Scanning</button>
+
+                                    <div className="flex gap-4 pt-4">
+                                        <button
+                                            onClick={() => { setOccupancy(482); setTotalIn(1243); setTotalOut(761); }}
+                                            className="text-slate-500 hover:text-white px-4 py-2 font-medium transition-colors text-sm"
+                                        >
+                                            Reset Demo Stats
+                                        </button>
+                                        <div className="flex-1" />
+                                        <button onClick={handleNext} className="bg-white text-black font-bold px-6 py-2 rounded-full hover:scale-105 transition-transform">Next: ID Scanning</button>
+                                    </div>
                                 </div>
 
                                 <div className="relative mx-auto w-full max-w-[400px]">
-                                    {/* Phone Frame */}
-                                    <div className="bg-black border-[12px] border-slate-800 rounded-[3rem] shadow-2xl overflow-hidden aspect-[9/19] relative">
-                                        {/* Dynamic Screen Content */}
-                                        <div className="absolute inset-0 bg-slate-950 flex flex-col text-center">
-                                            <div className="p-6 pt-12 bg-slate-900 flex justify-between items-center">
-                                                <div className="font-bold text-white">Main Floor</div>
-                                                <div className="text-xs font-mono text-green-400 flex items-center gap-1">● LIVE</div>
+                                    {/* Coachmark */}
+                                    <div className="absolute -right-4 top-1/2 translate-x-full hidden lg:block z-20">
+                                        <div className="flex items-center gap-2 text-primary animate-bounce">
+                                            <ArrowLeft className="w-6 h-6" />
+                                            <span className="font-bold whitespace-nowrap">Tap + or - to test!</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Phone Frame - Pro Type UI */}
+                                    <div className="bg-black border-[12px] border-slate-800 rounded-[3rem] shadow-2xl overflow-hidden aspect-[9/19] relative flex flex-col">
+
+                                        {/* Status Bar */}
+                                        <div className="h-8 bg-black w-full shrink-0" />
+
+                                        {/* App Header */}
+                                        <div className="bg-black px-6 pb-4 flex items-center justify-between z-10">
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Demo Venue</div>
+                                                <div className="text-white font-bold text-lg">Main Entrance</div>
                                             </div>
-                                            <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-2">
-                                                <div className="text-8xl font-black tabular-nums tracking-tighter text-white transition-all scale-100 duration-100">
+                                            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_10px_#22c55e]" />
+                                        </div>
+
+                                        <div className="flex-1 bg-black flex flex-col relative">
+
+                                            {/* Big Occupancy Display */}
+                                            <div className="flex-1 flex flex-col items-center justify-center min-h-[220px]">
+                                                <div className="text-[6rem] leading-none font-mono font-bold text-white tracking-tighter tabular-nums drop-shadow-[0_0_30px_rgba(255,255,255,0.2)]">
                                                     {occupancy}
                                                 </div>
-                                                <div className="text-slate-500 font-bold uppercase tracking-widest text-sm">Guests / {capacity}</div>
-                                                <div className="text-xs text-slate-600 mt-2">{(occupancy / capacity * 100).toFixed(0)}% Full</div>
+                                                <div className="flex items-center gap-3 mt-4">
+                                                    <span className="text-slate-500 font-bold uppercase tracking-wider text-xs">Cap {capacity}</span>
+                                                    <span className="w-1 h-1 rounded-full bg-slate-700" />
+                                                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${occupancy >= capacity ? 'bg-red-500/20 text-red-500' : 'bg-slate-800 text-slate-400'}`}>
+                                                        {Math.round(occupancy / capacity * 100)}% FULL
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <div className="grid grid-cols-2 h-1/3 border-t border-white/10">
-                                                <button
-                                                    onClick={() => { setOccupancy(p => p - 1); triggerSync(); }}
-                                                    className="bg-red-500/20 hover:bg-red-500/30 text-red-500 text-6xl font-light active:scale-95 transition-all flex items-center justify-center border-r border-white/10"
-                                                >
-                                                    -
-                                                </button>
-                                                <button
-                                                    onClick={() => { setOccupancy(p => p + 1); triggerSync(); }}
-                                                    className="bg-green-500/20 hover:bg-green-500/30 text-green-500 text-6xl font-light active:scale-95 transition-all flex items-center justify-center"
-                                                >
-                                                    +
-                                                </button>
+
+                                            {/* Mini Stats Grid */}
+                                            <div className="grid grid-cols-3 gap-2 px-4 mb-4">
+                                                <div className="bg-slate-900/50 rounded-xl p-2 text-center border border-white/5">
+                                                    <div className="text-[10px] text-slate-500 uppercase font-bold">Total In</div>
+                                                    <div className="text-white font-mono font-bold">{totalIn}</div>
+                                                </div>
+                                                <div className="bg-slate-900/50 rounded-xl p-2 text-center border border-white/5">
+                                                    <div className="text-[10px] text-slate-500 uppercase font-bold">Net</div>
+                                                    <div className="text-white font-mono font-bold">{occupancy}</div>
+                                                </div>
+                                                <div className="bg-slate-900/50 rounded-xl p-2 text-center border border-white/5">
+                                                    <div className="text-[10px] text-slate-500 uppercase font-bold">Total Out</div>
+                                                    <div className="text-white font-mono font-bold">{totalOut}</div>
+                                                </div>
+                                            </div>
+
+                                            {/* Controls Area (Bottom) */}
+                                            <div className="p-4 pt-0 pb-8 flex flex-col gap-3">
+                                                <TapButton
+                                                    type="plus"
+                                                    label="Guest In"
+                                                    color="blue"
+                                                    onClick={() => {
+                                                        setOccupancy(p => p + 1);
+                                                        setTotalIn(p => p + 1);
+                                                        triggerSync();
+                                                    }}
+                                                    className="h-32 rounded-[2rem] shadow-[0_0_30px_rgba(37,99,235,0.2)] animate-pulse"
+                                                />
+                                                <TapButton
+                                                    type="minus"
+                                                    label="Guest Out"
+                                                    color="blue"
+                                                    onClick={() => {
+                                                        if (occupancy > 0) {
+                                                            setOccupancy(p => p - 1);
+                                                            setTotalOut(p => p + 1);
+                                                            triggerSync();
+                                                        }
+                                                    }}
+                                                    className="h-20 rounded-[1.5rem] opacity-90"
+                                                />
+                                            </div>
+
+                                            {/* Mobile-only coachmark overlay (initially visible then fades?) */}
+                                            <div className="absolute inset-x-0 bottom-36 text-center pointer-events-none lg:hidden">
+                                                <span className="bg-black/80 text-white text-xs px-3 py-1 rounded-full border border-white/20 animate-bounce">
+                                                    Tap + to count
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -254,44 +376,54 @@ export default function InteractiveDemoPage() {
                                         Scan IDs in under a second. Automatically calculate age, verify expiration, and check your global ban list.
                                     </p>
 
-                                    <div className="p-6 bg-slate-900/50 border border-white/10 rounded-2xl">
-                                        <div className="flex items-center gap-3 mb-4">
+                                    <div className="p-6 bg-slate-900/50 border border-white/10 rounded-2xl relative">
+                                        {/* Coachmark */}
+                                        <div className="absolute -top-3 right-4 bg-primary text-white text-xs font-bold px-3 py-1 rounded-full animate-bounce shadow-lg z-10">
+                                            Tap below to test!
+                                        </div>
+
+                                        <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-indigo-900/30 border border-indigo-500/30 rounded-lg">
+                                            <Bluetooth className="w-4 h-4 text-indigo-400 shrink-0" />
+                                            <span className="text-xs font-medium text-indigo-200">
+                                                {V4_MESSAGING.short} <span className="opacity-50 ml-1 hidden sm:inline">{V4_MESSAGING.finePrint}</span>
+                                            </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-3 mb-6">
                                             <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors cursor-pointer ${autoAddEnabled ? 'bg-primary border-primary' : 'border-slate-500'}`} onClick={() => setAutoAddEnabled(!autoAddEnabled)}>
                                                 {autoAddEnabled && <CheckCircle className="w-4 h-4 text-white" />}
                                             </div>
-                                            <span className="text-sm font-medium text-white select-none cursor-pointer" onClick={() => setAutoAddEnabled(!autoAddEnabled)}>Auto-add +1 count on valid scan</span>
+                                            <span className="text-sm font-medium text-white select-none cursor-pointer" onClick={() => setAutoAddEnabled(!autoAddEnabled)}>Auto-add +1 to occupancy on valid scan</span>
                                         </div>
-                                        <p className="text-xs text-slate-500 mb-6">Test the simulation by clicking an ID type below:</p>
 
-                                        <div className="grid grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 gap-3">
                                             <button
                                                 onClick={() => simulateScan('valid')}
-                                                className="p-3 bg-green-900/20 border border-green-500/30 hover:bg-green-900/40 rounded-lg text-left transition-all"
+                                                className="group p-4 bg-green-900/10 border border-green-500/30 hover:bg-green-900/30 rounded-xl text-left transition-all flex items-center justify-between"
                                             >
-                                                <div className="font-bold text-green-400">Valid 21+</div>
-                                                <div className="text-xs text-slate-400">Driver&apos;s License</div>
+                                                <div>
+                                                    <div className="font-bold text-green-400 group-hover:text-green-300">Simulate ACCEPT</div>
+                                                    <div className="text-xs text-slate-400">Valid ID • 21+</div>
+                                                </div>
+                                                <CheckCircle className="w-6 h-6 text-green-500/50 group-hover:text-green-400" />
                                             </button>
-                                            <button
-                                                onClick={() => simulateScan('underage')}
-                                                className="p-3 bg-red-900/20 border border-red-500/30 hover:bg-red-900/40 rounded-lg text-left transition-all"
-                                            >
-                                                <div className="font-bold text-red-400">Underage</div>
-                                                <div className="text-xs text-slate-400">Born 2004</div>
-                                            </button>
-                                            <button
-                                                onClick={() => simulateScan('expired')}
-                                                className="p-3 bg-amber-900/20 border border-amber-500/30 hover:bg-amber-900/40 rounded-lg text-left transition-all"
-                                            >
-                                                <div className="font-bold text-amber-400">Expired</div>
-                                                <div className="text-xs text-slate-400">Exp 2023</div>
-                                            </button>
-                                            <button
-                                                onClick={() => simulateScan('banned')}
-                                                className="p-3 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-lg text-left transition-all"
-                                            >
-                                                <div className="font-bold text-slate-200">Banned Guest</div>
-                                                <div className="text-xs text-slate-400">In database</div>
-                                            </button>
+
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <button
+                                                    onClick={() => simulateScan('underage')}
+                                                    className="p-3 bg-red-900/10 border border-red-500/30 hover:bg-red-900/30 rounded-xl text-left transition-all"
+                                                >
+                                                    <div className="font-bold text-red-400">Simulate DENY</div>
+                                                    <div className="text-xs text-slate-400">Underage</div>
+                                                </button>
+                                                <button
+                                                    onClick={() => simulateScan('banned')}
+                                                    className="p-3 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-xl text-left transition-all"
+                                                >
+                                                    <div className="font-bold text-slate-200">Simulate BAN</div>
+                                                    <div className="text-xs text-slate-400">Banned Guest</div>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -318,7 +450,7 @@ export default function InteractiveDemoPage() {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-2">
                                         <div className="p-2 bg-red-500/20 rounded-lg"><ShieldCheck className="w-5 h-5 text-red-400" /></div>
-                                        <h2 className="text-4xl font-bold">86&apos;ing Made Simple</h2>
+                                        <h2 className="text-4xl font-bold">86'ing Made Simple</h2>
                                     </div>
                                     <p className="text-lg text-slate-400">
                                         Ban problem guests instantly. The ban syncs to all your devices and venues immediately.
@@ -327,7 +459,7 @@ export default function InteractiveDemoPage() {
                                     <div className="p-6 bg-slate-900 border border-white/10 rounded-2xl space-y-4">
                                         <p className="font-bold text-white">Try it out:</p>
                                         <ol className="list-decimal list-inside space-y-2 text-slate-400 text-sm">
-                                            <li>Scan &quot;Troublemaker&quot; below</li>
+                                            <li>Scan "Troublemaker" below</li>
                                             <li>Click the <span className="text-red-400 font-bold">BAN</span> button on the result screen</li>
                                             <li>Select a reason and confirm</li>
                                             <li>Scan them again to see the block!</li>
@@ -456,71 +588,89 @@ export default function InteractiveDemoPage() {
                                         </div>
                                     </div>
 
-                                    {/* Chart */}
-                                    <div className="flex-1 w-full min-h-[300px]">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={getChartData(dateRange)}>
-                                                <defs>
-                                                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                                                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                                                    </linearGradient>
-                                                </defs>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-                                                <XAxis
-                                                    dataKey="time"
-                                                    stroke="#ffffff40"
-                                                    tick={{ fill: '#ffffff40', fontSize: 12 }}
-                                                    tickLine={false}
-                                                    axisLine={false}
-                                                />
-                                                <YAxis
-                                                    stroke="#ffffff40"
-                                                    tick={{ fill: '#ffffff40', fontSize: 12 }}
-                                                    tickLine={false}
-                                                    axisLine={false}
-                                                    tickFormatter={(value) => value >= 1000 ? `${value / 1000}k` : value}
-                                                />
-                                                <Tooltip
-                                                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff20', borderRadius: '8px', color: '#fff' }}
-                                                    itemStyle={{ color: '#fff' }}
-                                                    formatter={(value: any) => [value?.toLocaleString(), 'Visitors']}
-                                                    labelStyle={{ color: '#94a3b8', marginBottom: '0.5rem' }}
-                                                />
-                                                {visibleSeries.current && (
-                                                    <Area
-                                                        type="monotone"
-                                                        dataKey="value"
-                                                        stroke="#6366f1"
-                                                        strokeWidth={3}
-                                                        fillOpacity={1}
-                                                        fill="url(#colorValue)"
-                                                        name="Current Period"
-                                                        animationDuration={1000}
-                                                    />
-                                                )}
-                                                {visibleSeries.previous && (
-                                                    <Area
-                                                        type="monotone"
-                                                        dataKey="prev"
-                                                        stroke="#ffffff30"
-                                                        strokeWidth={2}
-                                                        strokeDasharray="5 5"
-                                                        fill="transparent"
-                                                        name="Previous Period"
-                                                        animationDuration={1000}
-                                                    />
-                                                )}
-                                            </AreaChart>
-                                        </ResponsiveContainer>
+                                    {/* Charts Grid */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[300px]">
+                                        {/* Area Chart */}
+                                        <div className="lg:col-span-2 flex flex-col">
+                                            <div className="text-xs font-bold text-slate-500 uppercase mb-2">Hourly Trend</div>
+                                            <div className="flex-1 w-full bg-slate-900/50 rounded-xl border border-white/5 p-4">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <AreaChart data={getChartData(dateRange)}>
+                                                        <defs>
+                                                            <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                                                                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                                                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                                                            </linearGradient>
+                                                        </defs>
+                                                        <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                                                        <XAxis dataKey="time" stroke="#ffffff40" tick={{ fill: '#ffffff40', fontSize: 10 }} tickLine={false} axisLine={false} />
+                                                        <YAxis stroke="#ffffff40" tick={{ fill: '#ffffff40', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(value) => value >= 1000 ? `${value / 1000}k` : value} />
+                                                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff20', borderRadius: '8px', color: '#fff' }} itemStyle={{ color: '#fff' }} />
+                                                        {visibleSeries.current && <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" animationDuration={1000} />}
+                                                        {visibleSeries.previous && <Area type="monotone" dataKey="prev" stroke="#ffffff30" strokeWidth={2} strokeDasharray="5 5" fill="transparent" animationDuration={1000} />}
+                                                    </AreaChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+
+                                        {/* Bar Chart */}
+                                        <div className="flex flex-col">
+                                            <div className="text-xs font-bold text-slate-500 uppercase mb-2">Peak Hours</div>
+                                            <div className="flex-1 w-full bg-slate-900/50 rounded-xl border border-white/5 p-4">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <BarChart data={getChartData(dateRange).slice(0, 8)} layout="vertical">
+                                                        <XAxis type="number" hide />
+                                                        <YAxis dataKey="time" type="category" width={60} tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} />
+                                                        <Tooltip cursor={{ fill: '#ffffff05' }} contentStyle={{ backgroundColor: '#0f172a' }} />
+                                                        <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div className="flex justify-end gap-4">
-                                    <button onClick={handlePrev} className="text-slate-500 hover:text-white px-4 py-2 font-medium transition-colors">Back</button>
-                                    <button onClick={handleNext} className="bg-white text-black font-bold px-8 py-3 rounded-full hover:scale-105 transition-transform flex items-center gap-2">
-                                        Finish Tour <ArrowRight className="w-4 h-4" />
-                                    </button>
+                                {/* Summary Table */}
+                                <div className="mt-6 border-t border-white/10 pt-6">
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Operations Summary</h3>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="p-4 bg-slate-900 rounded-xl border border-white/5">
+                                            <div className="text-xs text-slate-500 font-bold uppercase">Total In</div>
+                                            <div className="text-2xl font-mono font-bold text-white mt-1">
+                                                {dateRange === '24H' ? '2,408' : dateRange === '7D' ? '14,205' : '58,930'}
+                                            </div>
+                                        </div>
+                                        <div className="p-4 bg-slate-900 rounded-xl border border-white/5">
+                                            <div className="text-xs text-slate-500 font-bold uppercase">Total Out</div>
+                                            <div className="text-2xl font-mono font-bold text-white mt-1">
+                                                {dateRange === '24H' ? '2,102' : dateRange === '7D' ? '13,850' : '57,100'}
+                                            </div>
+                                        </div>
+                                        <div className="p-4 bg-slate-900 rounded-xl border border-white/5">
+                                            <div className="text-xs text-slate-500 font-bold uppercase">Peak Occupancy</div>
+                                            <div className="text-2xl font-mono font-bold text-white mt-1">
+                                                {dateRange === '24H' ? '94%' : '98%'}
+                                            </div>
+                                            <div className="text-[10px] text-slate-500">at 11:45 PM</div>
+                                        </div>
+                                        <div className="p-4 bg-slate-900 rounded-xl border border-white/5">
+                                            <div className="text-xs text-slate-500 font-bold uppercase">Avg Duration</div>
+                                            <div className="text-2xl font-mono font-bold text-white mt-1">2h 15m</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-between items-center mt-4">
+                                    <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-slate-800/50 rounded-lg border border-white/5 opacity-60 hover:opacity-100 transition-opacity">
+                                        <Bluetooth className="w-3 h-3 text-indigo-400" />
+                                        <span className="text-[10px] uppercase font-bold text-slate-400">V4.0 Bluetooth Compatible</span>
+                                    </div>
+                                    <div className="flex gap-4 ml-auto lg:ml-0">
+                                        <button onClick={handlePrev} className="text-slate-500 hover:text-white px-4 py-2 font-medium transition-colors">Back</button>
+                                        <button onClick={handleNext} className="bg-white text-black font-bold px-8 py-3 rounded-full hover:scale-105 transition-transform flex items-center gap-2">
+                                            Finish Tour <ArrowRight className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -530,7 +680,7 @@ export default function InteractiveDemoPage() {
                                 <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-4">
                                     <CheckCircle className="w-10 h-10 text-black" />
                                 </div>
-                                <h1 className="text-4xl md:text-6xl font-bold">You&apos;re ready to launch.</h1>
+                                <h1 className="text-4xl md:text-6xl font-bold">You're ready to launch.</h1>
                                 <p className="text-xl text-slate-400">
                                     CLICR replaces 5 different tools with one seamless operating system.
                                     Start your 14-day free pilot today found at clicr.co
@@ -553,7 +703,7 @@ export default function InteractiveDemoPage() {
                     </motion.div>
                 </AnimatePresence>
             </main>
-        </div>
+        </div >
     );
 
     // --- Helpers & Logic ---
@@ -567,6 +717,7 @@ export default function InteractiveDemoPage() {
                 setScanResult({ type: 'VALID', data: MOCK_IDS.valid });
                 if (autoAddEnabled) {
                     setOccupancy(p => p + 1);
+                    setTotalIn(p => p + 1);
                     triggerSync();
                 }
             } else if (type === 'underage') {
@@ -599,7 +750,7 @@ export default function InteractiveDemoPage() {
 
 // --- Sub Components ---
 
-function ScannerPhoneFrame({ isScanning, result, onScanNext, onBanRequest, readonly }: { isScanning: boolean; result: any; onScanNext: () => void; onBanRequest: () => void; readonly?: boolean }) {
+function ScannerPhoneFrame({ isScanning, result, onScanNext, onBanRequest, readonly }: any) {
     return (
         <div className="bg-black border-[12px] border-slate-800 rounded-[3rem] shadow-2xl overflow-hidden aspect-[9/19] relative flex flex-col">
             {/* Status Bar */}
@@ -743,3 +894,49 @@ function getChartData(range: '24H' | '7D' | '30D') {
 }
 
 
+// --- UI Helpers ---
+
+function TapButton({
+    type,
+    label,
+    color,
+    onClick,
+    className
+}: {
+    type: 'plus' | 'minus',
+    label?: string,
+    color?: 'blue' | 'pink',
+    onClick: () => void,
+    className?: string
+}) {
+    // Colors
+    const blueGradient = "bg-blue-600 active:bg-blue-700 from-blue-600 to-blue-800 bg-gradient-to-br border-blue-500/50";
+    const pinkGradient = "bg-pink-600 active:bg-pink-700 from-pink-600 to-pink-800 bg-gradient-to-br border-pink-500/50";
+    // Fallback for generic
+    const greenGradient = "bg-emerald-600 active:bg-emerald-700 from-emerald-600 to-emerald-800 bg-gradient-to-br";
+    const redGradient = "bg-rose-600 active:bg-rose-700 from-rose-600 to-rose-800 bg-gradient-to-br";
+
+    let bgClass = "";
+    if (color === 'blue') bgClass = blueGradient;
+    else if (color === 'pink') bgClass = pinkGradient;
+    else bgClass = type === 'plus' ? greenGradient : redGradient;
+
+    return (
+        <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={onClick}
+            className={`flex flex-col items-center justify-center relative overflow-hidden group transition-all shadow-2xl border-t border-white/20 ${bgClass} ${className}`}
+        >
+            <div className="relative z-10 flex flex-col items-center gap-1">
+                {type === 'plus' ? (
+                    <Users className={`text-white drop-shadow-md transition-all ${label ? "w-8 h-8 md:w-10 md:h-10" : "w-10 h-10 md:w-12 md:h-12"}`} />
+                ) : (
+                    <div className="w-8 h-1 bg-white rounded-full drop-shadow-md" />
+                )}
+                {label && <span className="text-white font-bold tracking-widest text-[10px] md:text-xs uppercase">{label}</span>}
+            </div>
+
+            <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
+        </motion.button>
+    )
+}

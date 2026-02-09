@@ -7,7 +7,6 @@ export async function updateSession(request: NextRequest) {
         request,
     })
 
-    // Create client
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -20,9 +19,7 @@ export async function updateSession(request: NextRequest) {
                     cookiesToSet.forEach(({ name, value, options }) => {
                         request.cookies.set(name, value)
                     });
-
                     supabaseResponse = NextResponse.next({ request });
-
                     cookiesToSet.forEach(({ name, value, options }) =>
                         supabaseResponse.cookies.set(name, value, options)
                     )
@@ -31,74 +28,69 @@ export async function updateSession(request: NextRequest) {
         }
     )
 
-    // Get user
     const {
         data: { user },
     } = await supabase.auth.getUser()
 
-    // Protect /dashboard and /settings
-    // Also protect /clicr if needed, but maybe that's public for kiosk mode? 
-    // For now, let's assume everything under (authenticated) is protected implicitly 
-    // but we can check pathnames for stronger security.
-
     const path = request.nextUrl.pathname;
 
-    // 1. If user is NOT logged in and trying to access protected routes -> Redirect to Login
-    // Protected paths: /dashboard, /venues, /settings, /banning, /reports
-    // OR simply: If it doesn't start with /login, /signup, /auth, /api/public, or static files
-    const isProtectedRoute = path.startsWith('/dashboard') ||
+    // --- 1. UNAUTHENTICATED USERS ---
+    // Protect private routes
+    const isProtectedRoute =
+        path.startsWith('/dashboard') ||
         path.startsWith('/venues') ||
         path.startsWith('/banning') ||
         path.startsWith('/reports') ||
-        path.startsWith('/settings') ||
-        path.startsWith('/onboarding');
+        path.startsWith('/settings');
+    // Note: /onboarding is protected but handled specifically below
 
-    if (!user && isProtectedRoute) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/login'
-        return NextResponse.redirect(url)
+    if (!user) {
+        if (isProtectedRoute || path === '/onboarding') {
+            const url = request.nextUrl.clone()
+            url.pathname = '/login'
+            return NextResponse.redirect(url)
+        }
+        // Allow /onboarding/signup, /onboarding/verify-email, /login, /signup, etc.
+        return supabaseResponse;
     }
 
-    // 2. If user IS logged in...
+    // --- 2. AUTHENTICATED USERS ---
     if (user) {
-        // --- ONBOARDING CHECK ---
-        // Exclude system routes from this check to avoid breaking assets/API
-        if (!path.startsWith('/api') && !path.startsWith('/_next') && !path.includes('.')) {
+        // Allow Debug & API routes always
+        if (
+            path.startsWith('/api') ||
+            path.startsWith('/_next') ||
+            path.includes('.') ||
+            path.startsWith('/debug')
+        ) {
+            return supabaseResponse;
+        }
 
-            // Check Membership (Source of Truth)
-            let hasBusiness = false;
+        // Check Onboarding Progress
+        const { data: progress } = await supabase
+            .from('onboarding_progress')
+            .select('current_step')
+            .eq('user_id', user.id)
+            .single();
 
-            // 1. Try checking business_members (New Architecture)
-            const { data: memberships, error: memberError } = await supabase
-                .from('business_members')
-                .select('business_id')
-                .eq('user_id', user.id);
+        const isOnboardingComplete = (progress?.current_step || 0) >= 999;
 
-            if (!memberError && memberships && memberships.length > 0) {
-                hasBusiness = true;
-            } else {
-                // 2. Fallback to Profile (Legacy/Migration Phase)
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('business_id')
-                    .eq('id', user.id)
-                    .single();
-
-                if (profile?.business_id) hasBusiness = true;
-            }
-
-            // Scenario A: User needs to onboard but is somewhere else
-            if (!hasBusiness && path !== '/onboarding' && path !== '/login' && path !== '/signup' && path !== '/debug') {
-                const url = request.nextUrl.clone()
-                url.pathname = '/onboarding'
-                return NextResponse.redirect(url)
-            }
-
-            // Scenario B: User finished onboarding but is trying to go back (or to login)
-            // Fix: Add /signup to this list so logged-in users are redirected to dashboard if they try to sign up again
-            if (hasBusiness && (path === '/onboarding' || path === '/login' || path === '/signup' || path === '/')) {
+        // Scenario A: User is fully onboarded
+        if (isOnboardingComplete) {
+            // Block onboarding & legacy auth routes -> Go to Dashboard
+            if (path.startsWith('/onboarding') || path.startsWith('/auth') || path.startsWith('/login') || path === '/signup' || path === '/') {
                 const url = request.nextUrl.clone()
                 url.pathname = '/dashboard'
+                return NextResponse.redirect(url)
+            }
+        }
+
+        // Scenario B: User is NOT onboarded
+        else {
+            // Strict Gate: Must be in /onboarding
+            if (!path.startsWith('/onboarding')) {
+                const url = request.nextUrl.clone()
+                url.pathname = '/onboarding'
                 return NextResponse.redirect(url)
             }
         }

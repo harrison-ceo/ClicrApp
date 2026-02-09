@@ -1,109 +1,172 @@
-'use client';
 
-import { completeOnboarding } from './actions'
-import { Rocket, Building2, MapPin, AlertTriangle } from 'lucide-react'
-import { useSearchParams } from 'next/navigation'
-import { Suspense } from 'react'
+import { Suspense } from 'react';
+import { createClient } from '@/utils/supabase/server';
+import { redirect } from 'next/navigation';
+import { StepContainer, BusinessStep, VenueStep, AreaStep, ClicrStep } from './client-steps';
+import { AlertTriangle, Terminal } from 'lucide-react';
+import Link from 'next/link';
 
-function OnboardingForm() {
-    const searchParams = useSearchParams();
-    const error = searchParams.get('error');
+async function OnboardingWizardContent({ searchParams }: any) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // If not logged in, Start -> Signup
+    if (!user) return redirect('/onboarding/signup');
+
+    // Fetch progress with explicit error handling
+    const { data: progress, error: fetchError } = await supabase.from('onboarding_progress').select('user_id, business_id, current_step').eq('user_id', user.id).single();
+
+    // Check for critical DB error (missing table)
+    if (fetchError && fetchError.code === '42P01') {
+        console.error("Critical: onboarding_progress table missing");
+        return (
+            <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
+                <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+                <h1 className="text-xl font-bold mb-2">System Error: Database Update Required</h1>
+                <p className="text-slate-400 mb-4">The onboarding system is missing a required database table.</p>
+                <code className="bg-slate-900 p-4 rounded text-xs text-left block mb-4">
+                    Error: relation "public.onboarding_progress" does not exist. <br />
+                    Migration 16_onboarding_robust.sql has not been applied.
+                </code>
+            </div>
+        )
+    }
+
+    // Auto-initialize if missing (and no error)
+    if (!progress && !fetchError) {
+        // If they have no progress, treat as new onboarding
+        const { error: insertError } = await supabase.from('onboarding_progress').upsert({
+            user_id: user.id,
+            current_step: 2
+        }, { onConflict: 'user_id' });
+
+        if (insertError) {
+            console.error("Insert progress failed:", insertError);
+            return (
+                <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center">
+                    <AlertTriangle className="w-10 h-10 text-red-500 mb-4" />
+                    <p>Failed to initialize onboarding.</p>
+                    <pre className="text-xs text-slate-500 mt-2">{insertError.message}</pre>
+                </div>
+            );
+        }
+
+        // Refresh to load the new row
+        return redirect('/onboarding');
+    }
+
+    // If completed, strict guardrail to dashboard
+    if ((progress?.current_step || 0) > 500) return redirect('/dashboard');
+
+    const params = await searchParams;
+    const error = params.error;
+
+    // Logic to resolve data for steps
+    const step = Number(progress?.current_step || 2);
+    // PAYLOAD IS BROKEN - IGNORE IT
+
+    // Derived State from URL & DB
+    const idxParam = params.idx;
+    const activeVenueIndex = idxParam ? parseInt(idxParam as string) : 0;
+
+    let currentVenue = null;
+    let venues: any[] = [];
+    let venueCount = 1;
+    let areas: any[] = [];
+
+    // Fetch Business Context
+    const businessId = progress?.business_id;
+
+    if (businessId) {
+        // Fetch Venues
+        const { data: v, error: vErr } = await supabase.from('venues').select('*').eq('business_id', businessId).order('created_at');
+        if (v) {
+            venues = v;
+            venueCount = v.length || 1;
+            if (venues.length > activeVenueIndex) {
+                currentVenue = venues[activeVenueIndex];
+            }
+        }
+    }
+
+    // If Step 5, fetch areas for current venue to populate Clicr setup
+    if (step === 5 && currentVenue) {
+        // Sort by creation to be consistent
+        const { data: a } = await supabase.from('areas').select('*').eq('venue_id', currentVenue.id).order('created_at');
+        areas = a || [];
+    }
+
+    /* DEBUG PANEL DATA */
+    const debugInfo = {
+        userId: user.id,
+        step,
+        businessId,
+        venueCount,
+        activeVenueIndex,
+        currentVenueId: currentVenue?.id,
+        venuesLoaded: venues.length
+    };
 
     return (
-        <div className="w-full max-w-lg bg-slate-900/50 border border-white/10 rounded-3xl p-8 md:p-12 shadow-2xl backdrop-blur-xl">
-            <div className="text-center mb-10">
-                <div className="w-16 h-16 bg-primary/20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-primary border border-primary/20">
-                    <Rocket className="w-8 h-8" />
-                </div>
-                <h1 className="text-3xl font-bold tracking-tight mb-3">Setup Your Organization</h1>
-                <p className="text-slate-400">Welcome to CLICR. Let&apos;s get your first workspace ready in seconds.</p>
-            </div>
+        <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 relative overflow-hidden">
+            {/* Background */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-indigo-900/20 rounded-full blur-[100px] -z-10" />
+
+            <Link href="/api/auth/signout" className="absolute top-8 left-8 text-slate-600 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest">
+                Cancel Setup
+            </Link>
 
             {error && (
-                <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-red-400 text-sm">
-                    <AlertTriangle className="w-5 h-5 shrink-0" />
-                    <span>{error}</span>
+                <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg flex items-center gap-2 text-sm z-50 animate-in fade-in slide-in-from-top-2 shadow-xl">
+                    <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                    <span>{error}. <Link href="/onboarding" className="underline font-bold">Retry</Link></span>
                 </div>
             )}
 
-            <form action={completeOnboarding} className="space-y-6">
+            {step === 2 && (
+                <StepContainer title="Tell us about yourself" subtitle="We'll structure your account based on your setup." stepNumber={1} totalSteps={4}>
+                    <BusinessStep />
+                </StepContainer>
+            )}
 
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Business Name</label>
-                        <div className="relative">
-                            <Building2 className="absolute left-4 top-3.5 w-5 h-5 text-slate-500" />
-                            <input
-                                name="businessName"
-                                type="text"
-                                required
-                                placeholder="e.g. Nightlife Group LLC"
-                                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-slate-600 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-                            />
-                        </div>
-                    </div>
+            {step === 3 && (
+                <StepContainer title="Add your Venues" subtitle={`Let's set up venue ${activeVenueIndex + 1} of ${venueCount}.`} stepNumber={2} totalSteps={4}>
+                    <VenueStep index={activeVenueIndex} total={venueCount} />
+                </StepContainer>
+            )}
 
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">First Venue Name</label>
-                        <div className="relative">
-                            <MapPin className="absolute left-4 top-3.5 w-5 h-5 text-slate-500" />
-                            <input
-                                name="venueName"
-                                type="text"
-                                required
-                                placeholder="e.g. The Grand Club"
-                                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-slate-600 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-                            />
-                        </div>
-                    </div>
+            {step === 4 && (
+                <StepContainer title="Define Areas" subtitle={currentVenue ? `Where do guests enter/exit ${currentVenue.name}?` : 'Set up areas within your venue.'} stepNumber={3} totalSteps={4}>
+                    <AreaStep venueName={currentVenue?.name || 'Venue'} index={activeVenueIndex} />
+                </StepContainer>
+            )}
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Capacity</label>
-                            <input
-                                name="venueCapacity"
-                                type="number"
-                                required
-                                defaultValue={500}
-                                min={1}
-                                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white placeholder-slate-600 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Timezone</label>
-                            <select
-                                name="venueTimezone"
-                                required
-                                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white placeholder-slate-600 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-                            >
-                                <option value="America/New_York">Eastern Time</option>
-                                <option value="America/Chicago">Central Time</option>
-                                <option value="America/Denver">Mountain Time</option>
-                                <option value="America/Los_Angeles">Pacific Time</option>
-                                <option value="Europe/London">London (GMT)</option>
-                                <option value="UTC">UTC</option>
-                            </select>
-                        </div>
-                    </div>
+            {step === 5 && (
+                <StepContainer title="Connect Clicrs" subtitle={currentVenue ? `Assign devices to areas in ${currentVenue.name}.` : 'Set up your devices.'} stepNumber={4} totalSteps={4}>
+                    <ClicrStep venueName={currentVenue?.name || 'Venue'} areas={areas} index={activeVenueIndex} />
+                </StepContainer>
+            )}
+
+            {/* Hidden Debug Panel */}
+            <div className="fixed bottom-2 right-2 opacity-0 hover:opacity-100 transition-opacity p-2 bg-black/90 border border-white/10 rounded text-[10px] text-green-500 font-mono z-[9999]">
+                <div className="flex items-center gap-2 mb-1 border-b border-white/10 pb-1">
+                    <Terminal className="w-3 h-3" /> System Trace
                 </div>
-
-                <button type="submit" className="w-full bg-primary text-white font-bold py-4 rounded-xl hover:bg-primary-hover shadow-lg shadow-primary/25 transition-all transform hover:scale-[1.02]">
-                    Launch Dashboard
-                </button>
-            </form>
+                <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+            </div>
         </div>
     )
 }
 
-export default function OnboardingPage() {
+export default function OnboardingWizard(props: any) {
     return (
-        <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 relative overflow-hidden">
-            {/* Background Effects */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-primary/10 rounded-full blur-3xl opacity-30 -z-10" />
-
-            <Suspense fallback={<div className="text-white">Loading...</div>}>
-                <OnboardingForm />
-            </Suspense>
-        </div>
+        <Suspense fallback={
+            <div className="min-h-screen bg-black flex flex-col items-center justify-center text-white space-y-4">
+                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-slate-500 text-sm">Resuming setup...</p>
+            </div>
+        }>
+            <OnboardingWizardContent {...props} />
+        </Suspense>
     )
 }
