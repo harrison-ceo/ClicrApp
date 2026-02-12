@@ -1,8 +1,32 @@
 'use server';
 
-import { createTicket } from '@/lib/db';
-import { SupportTicket } from '@/lib/types';
+import { createClient } from '@/lib/supabase/server';
 import { Resend } from 'resend';
+
+type SupportTicket = {
+    id: string;
+    user_id: string;
+    org_id: string | null;
+    venue_id: string | null;
+    subject: string;
+    status: string;
+    priority: string;
+    category: string;
+    created_at: string;
+};
+
+export type SupportTicketRow = {
+    id: string;
+    user_id: string;
+    venue_id: string | null;
+    subject: string;
+    status: string;
+    priority: string;
+    category: string;
+    created_at: string;
+    venues?: { name: string } | { name: string }[] | null;
+    support_ticket_messages?: { message_text: string; created_at: string }[];
+};
 
 // Helper to get Resend instance safely (prevents crashing if no key)
 const getResend = () => {
@@ -11,82 +35,96 @@ const getResend = () => {
     return new Resend(key);
 }
 
+const getSupportEmail = () => {
+    return process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'harrison@clicrapp.com';
+}
+
 export type TicketFormData = {
     subject: string;
     description: string;
     category: 'TECHNICAL' | 'BILLING' | 'FEATURE_REQUEST' | 'OTHER' | 'COMPLIANCE';
     priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-    userId: string;
-    businessId: string;
+    venueId?: string | null;
 };
 
 export async function submitSupportTicket(data: TicketFormData) {
-    console.log(`[SUPPORT] Processing ticket from ${data.userId}`);
+    const supabase = await createClient();
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData?.user) {
+        throw new Error('You must be signed in to submit a ticket.');
+    }
 
-    const ticketId = crypto.randomUUID();
-    const now = new Date().toISOString();
+    const userId = authData.user.id;
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('org_id, venue_id')
+        .eq('id', userId)
+        .single();
 
-    // 1. Create Ticket Object
-    const newTicket: SupportTicket = {
-        id: ticketId,
-        business_id: data.businessId,
-        user_id: data.userId,
-        subject: data.subject,
-        status: 'OPEN',
-        priority: data.priority,
-        category: data.category as any,
-        created_at: now,
-        updated_at: now,
-        messages: [
-            {
-                id: crypto.randomUUID(),
-                ticket_id: ticketId,
-                sender_id: data.userId,
-                message_text: data.description,
-                timestamp: now,
-                is_internal: false
-            }
-        ]
-    };
+    if (profileError) {
+        throw new Error(profileError.message);
+    }
 
-    // 2. Save to DB (Mock or Supabase)
-    // LOCAL MOCK:
-    createTicket(newTicket);
+    const { data: ticket, error: ticketError } = await supabase
+        .from('support_tickets')
+        .insert({
+            user_id: userId,
+            org_id: profile?.org_id ?? null,
+            venue_id: data.venueId ?? profile?.venue_id ?? null,
+            subject: data.subject,
+            status: 'OPEN',
+            priority: data.priority,
+            category: data.category,
+        })
+        .select('id, user_id, org_id, venue_id, subject, status, priority, category, created_at')
+        .single();
 
-    // REAL SUPABASE (Uncomment when connected):
-    /*
-    const { error } = await supabase.from('support_tickets').insert({ ... });
-    */
+    if (ticketError || !ticket) {
+        throw new Error(ticketError?.message ?? 'Failed to create ticket.');
+    }
 
-    // 3. Send Email Notification (to hello@clicrapp.com)
-    await sendEmailNotification(newTicket);
+    const { error: messageError } = await supabase.from('support_ticket_messages').insert({
+        ticket_id: ticket.id,
+        sender_id: userId,
+        message_text: data.description,
+        is_internal: false,
+    });
 
-    return { success: true, ticketId };
+    if (messageError) {
+        throw new Error(messageError.message);
+    }
+
+    await sendEmailNotification(ticket, data.description);
+    return { success: true, ticketId: ticket.id };
 }
 
-export async function getUserTickets(userId: string) {
-    // 1. Fetch from DB
-    // LOCAL MOCK:
-    const { getTickets } = await import('@/lib/db'); // Dynamic import to avoid build issues if mixed
-    const tickets = getTickets(userId);
-    return tickets;
+export async function getUserTickets(): Promise<SupportTicketRow[]> {
+    const supabase = await createClient();
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData?.user) {
+        return [];
+    }
 
-    // REAL SUPABASE:
-    /*
-    const { data } = await supabase.from('support_tickets').select('*').eq('user_id', userId);
-    return data || [];
-    */
+    const { data, error } = await supabase
+        .from('support_tickets')
+        .select('id, user_id, venue_id, subject, status, priority, category, created_at, venues(name), support_ticket_messages(message_text, created_at)')
+        .eq('user_id', authData.user.id)
+        .order('created_at', { ascending: false })
+        .order('created_at', { referencedTable: 'support_ticket_messages', ascending: true });
+
+    if (error || !data) return [];
+    return data;
 }
 
-async function sendEmailNotification(ticket: SupportTicket) {
+async function sendEmailNotification(ticket: SupportTicket, description: string) {
     const resend = getResend();
 
     // 1. Simulation Mode (No API Key)
     if (!resend) {
         console.log('--- [SIMULATION EMAIL] ---');
-        console.log(`To: harrison@clicrapp.com`);
+        console.log(`To: ${getSupportEmail()}`);
         console.log(`Subject: New Ticket: ${ticket.subject}`);
-        console.log(`Message: ${ticket.messages[0].message_text}`);
+        console.log(`Message: ${description}`);
         await new Promise(resolve => setTimeout(resolve, 500));
         return;
     }
@@ -95,15 +133,15 @@ async function sendEmailNotification(ticket: SupportTicket) {
     try {
         const { data, error } = await resend.emails.send({
             from: 'CLICR Support <onboarding@resend.dev>', // Use this for testing until you verify domain
-            to: ['harrison@clicrapp.com'],
+            to: [getSupportEmail()],
             subject: `[${ticket.priority}] ${ticket.subject}`,
             html: `
                 <h1>New Support Ticket</h1>
                 <p><strong>Category:</strong> ${ticket.category}</p>
-                <p><strong>User:</strong> ${ticket.user_id} (${ticket.business_id})</p>
+                <p><strong>User:</strong> ${ticket.user_id} (${ticket.org_id ?? 'no-org'})</p>
                 <hr />
                 <h2>${ticket.subject}</h2>
-                <p style="white-space: pre-wrap;">${ticket.messages[0].message_text}</p>
+                <p style="white-space: pre-wrap;">${description}</p>
                 <hr />
                 <p><a href="https://clicrapp.com/admin/tickets/${ticket.id}">View in Admin Dashboard</a></p>
             `

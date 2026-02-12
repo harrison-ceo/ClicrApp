@@ -144,20 +144,24 @@ export async function processScan(payload: ScanPayload): Promise<{ success: bool
             }
         });
 
-        // 8. Auto-Increment Occupancy (If Accepted)
+        // 8. Auto-Increment Occupancy (If Accepted and Area specified)
         if (outcome === 'ACCEPTED') {
-            // Check settings for auto-add
-            const autoAdd = true; // Default to true for now or fetch from settings
-            if (autoAdd) {
-                await supabaseAdmin.from('occupancy_events').insert({
-                    business_id: businessId,
-                    venue_id: payload.venueId,
-                    area_id: payload.areaId, // If null, counts towards venue total only? RLS might require area if not nullable. Schema check: area_id nullable.
-                    flow_type: 'IN',
-                    delta: 1,
-                    event_type: 'SCAN',
-                    device_id: payload.deviceId
+            const autoAdd = true; // TODO: Fetch from settings
+            if (autoAdd && payload.areaId) {
+                // Use User Client (supabase) to trigger RPC, ensuring proper permissions and snapshot updates
+                const { error: rpcError } = await supabase.rpc('apply_occupancy_delta', {
+                    p_business_id: businessId,
+                    p_venue_id: payload.venueId,
+                    p_area_id: payload.areaId,
+                    p_delta: 1,
+                    p_source: 'scan',
+                    p_device_id: payload.deviceId
                 });
+
+                if (rpcError) {
+                    console.error("Auto-Add Occupancy Failed:", rpcError);
+                    // Don't fail the scan, just log
+                }
             }
         }
 

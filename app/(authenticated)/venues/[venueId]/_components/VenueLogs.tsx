@@ -1,49 +1,64 @@
 "use client";
 
-import React from 'react';
-import { useApp } from '@/lib/store';
+import React, { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
 import { FileText } from 'lucide-react';
 
-export default function VenueLogs({ venueId }: { venueId: string }) {
-    const { venueAuditLogs } = useApp();
-    const logs = venueAuditLogs.filter(l => l.venue_id === venueId);
+type LogRow = {
+  id: string;
+  venue_id: string;
+  delta: number;
+  source: string | null;
+  created_at: string;
+  gender?: string | null;
+};
 
-    // If empty for now, mock so checking UI works
-    // In real app, we'd rely on 'logs'
+export default function VenueLogsTab({ venueId }: { venueId: string }) {
+  const [logs, setLogs] = useState<LogRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from('occupancy_logs')
+      .select('id, venue_id, delta, source, created_at')
+      .eq('venue_id', venueId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then(({ data }) => {
+        setLogs((data ?? []) as LogRow[]);
+        setLoading(false);
+      });
+  }, [venueId]);
+
+  if (loading) return <p className="text-slate-500">Loading logs…</p>;
+  if (logs.length === 0) {
     return (
-        <div className="space-y-6">
-            <h2 className="text-xl font-bold">Audit Logs</h2>
-            <div className="space-y-4">
-                {logs.length === 0 && (
-                    <div className="p-8 text-center bg-slate-900/30 rounded-2xl border border-slate-800 border-dashed">
-                        <FileText className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                        <p className="text-slate-500 text-sm">No audit logs recorded yet.</p>
-                    </div>
-                )}
-                {logs.map(log => (
-                    <div key={log.id} className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-                        <div className="flex justify-between items-start">
-                            <div>
-                                <span className="text-sm font-bold text-white bg-slate-800 px-2 py-0.5 rounded mr-2">
-                                    {log.action.replace(/_/g, ' ')}
-                                </span>
-                                <span className="text-slate-400 text-sm">
-                                    by User {log.performed_by_user_id}
-                                </span>
-                            </div>
-                            <span className="text-xs text-slate-500">
-                                {new Date(log.timestamp).toLocaleString()}
-                            </span>
-                        </div>
-                        {log.details_json && (
-                            <pre className="mt-2 text-[10px] text-slate-500 bg-black/30 p-2 rounded overflow-x-auto">
-                                {JSON.stringify(log.details_json, null, 2)}
-                            </pre>
-                        )}
-                    </div>
-                ))}
-            </div>
-        </div>
+      <div className="py-12 text-center text-slate-500 max-w-md mx-auto">
+        <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+        <p>No occupancy logs for this venue yet. Logs appear when traffic is recorded.</p>
+      </div>
     );
+  }
+
+  return (
+    <div className="space-y-3 max-w-3xl">
+      <h3 className="text-lg font-semibold text-white">Recent occupancy logs</h3>
+      <ul className="divide-y divide-slate-800 border border-slate-800 rounded-xl overflow-hidden">
+        {logs.map((log) => (
+          <li key={log.id} className="p-4 bg-slate-900/50 flex items-center justify-between text-sm">
+            <span className={cn('font-mono', log.delta >= 0 ? 'text-emerald-400' : 'text-amber-400')}>
+              {log.delta >= 0 ? '+' : ''}
+              {log.delta}
+            </span>
+            <span className="text-slate-500">{log.source ?? '—'}</span>
+            <span className="text-slate-500">
+              {new Date(log.created_at).toLocaleString(undefined, { timeZone: 'America/New_York', timeStyle: 'full' })}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }

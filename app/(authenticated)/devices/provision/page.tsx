@@ -21,6 +21,7 @@ export default function DeviceProvisioningPage() {
     const [selectedVenueId, setSelectedVenueId] = useState('');
     const [selectedAreaId, setSelectedAreaId] = useState('');
     const [deviceType, setDeviceType] = useState('Handheld Counter'); // Simulated fetch
+    const [directionMode, setDirectionMode] = useState('bidirectional');
 
     // Filter areas based on venue
     const availableAreas = areas.filter(a => a.venue_id === selectedVenueId);
@@ -42,7 +43,12 @@ export default function DeviceProvisioningPage() {
 
     const handleConfigSubmit = async () => {
         // Here we would perform the actual Supabase update
-        // await supabase.from('devices').update({ ... }).eq('pairing_code', pairingCode);
+        // await supabase.from('devices').update({ 
+        //   device_name: deviceName, 
+        //   venue_id: selectedVenueId,
+        //   area_id: selectedAreaId,
+        //   direction_mode: directionMode
+        // }).eq('pairing_code', pairingCode);
 
         setStep('SUCCESS');
     };
@@ -160,6 +166,30 @@ export default function DeviceProvisioningPage() {
                                             <option value="">Select Area...</option>
                                             {availableAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                                         </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Direction Mode</label>
+                                    <div className="grid grid-cols-3 gap-2 mt-2">
+                                        {[
+                                            { id: 'bidirectional', label: 'Bidirectional' },
+                                            { id: 'in_only', label: 'In Only' },
+                                            { id: 'out_only', label: 'Out Only' }
+                                        ].map(mode => (
+                                            <button
+                                                key={mode.id}
+                                                onClick={() => setDirectionMode(mode.id)}
+                                                className={cn(
+                                                    "py-3 rounded-xl text-sm font-bold border transition-all",
+                                                    directionMode === mode.id
+                                                        ? "bg-primary text-black border-primary"
+                                                        : "bg-slate-900 border-transparent text-slate-400 hover:border-slate-700"
+                                                )}
+                                            >
+                                                {mode.label}
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             </div>

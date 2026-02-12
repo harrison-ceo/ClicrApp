@@ -7,62 +7,113 @@ export const dynamic = 'force-dynamic';
 
 // --- HYDRATION HELPER ---
 // --- HYDRATION HELPER ---
-async function hydrateData(data: DBData): Promise<DBData> {
+// --- HYDRATION HELPER ---
+async function hydrateData(data: DBData, userId?: string): Promise<DBData> {
     try {
-        // 0. Fetch Structural Data (Source of Truth: Supabase)
-        const [
-            { data: sbBusinesses },
-            { data: sbVenues },
-            { data: sbAreas },
-            { data: sbProfiles }
-        ] = await Promise.all([
-            supabaseAdmin.from('businesses').select('*'),
-            supabaseAdmin.from('venues').select('*'),
-            supabaseAdmin.from('areas').select('*'),
-            supabaseAdmin.from('profiles').select('*')
-        ]);
+        let businessId: string | null = null;
 
-        if (sbBusinesses) {
-            data.business = sbBusinesses[0] as unknown as any; // Temporary bypass for mismatched schema logic
+        // 0. Resolve Tenant Context
+        if (userId) {
+            const { data: profile } = await supabaseAdmin.from('profiles').select('business_id').eq('id', userId).single();
+            if (profile?.business_id) {
+                businessId = profile.business_id;
+            }
         }
 
-        if (sbVenues) {
+        // 1. Fetch Structural Data (Source of Truth: Supabase)
+        let businessQuery = supabaseAdmin.from('businesses').select('*');
+
+        if (businessId) {
+            businessQuery = businessQuery.eq('id', businessId);
+        }
+
+        const { data: sbBusinesses } = await businessQuery;
+
+        // Set Active Business
+        if (sbBusinesses && sbBusinesses.length > 0) {
+            data.business = sbBusinesses[0] as unknown as any;
+        } else {
+            console.warn(`[Hydration] No business found for user ${userId || 'anon'}`);
+        }
+
+        const effectiveBizId = data.business?.id;
+
+        // Fetch Venues (Scoped)
+        let venueQuery = supabaseAdmin.from('venues').select('*');
+        if (effectiveBizId) venueQuery = venueQuery.eq('business_id', effectiveBizId);
+        const { data: sbVenues } = await venueQuery;
+
+        if (sbVenues && sbVenues.length > 0) {
             // Replace local venues with Supabase venues
             data.venues = sbVenues.map((v) => ({
                 id: v.id,
                 business_id: v.business_id,
                 name: v.name,
                 address: v.address,
-                city: 'City', // Fallback as schema might differ slightly
+                city: 'City',
                 state: 'State',
                 zip: '00000',
                 capacity: v.total_capacity,
+                default_capacity_total: v.total_capacity,
                 timezone: v.timezone || 'UTC',
-
-                // Required fields by Type
-                status: 'ACTIVE',
-                capacity_enforcement_mode: 'WARN_ONLY',
+                status: v.status || 'ACTIVE',
+                capacity_enforcement_mode: v.capacity_enforcement_mode || 'WARN_ONLY',
                 created_at: v.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             }));
+        } else if (data.venues.length > 0) {
+            console.log("[Hydration] Seeding Venues to Supabase...", effectiveBizId);
+            const seedVenues = data.venues.map(v => ({
+                id: v.id,
+                business_id: effectiveBizId || 'biz_001',
+                name: v.name,
+                total_capacity: v.default_capacity_total,
+                status: 'ACTIVE'
+            }));
+            await supabaseAdmin.from('venues').upsert(seedVenues);
         }
 
-        if (sbAreas) {
+        // Fetch Areas (Scoped)
+        const venueIds = data.venues.map(v => v.id);
+        let areaQuery = supabaseAdmin.from('areas').select('*');
+        if (venueIds.length > 0) {
+            areaQuery = areaQuery.in('venue_id', venueIds);
+        } else {
+            // If no venues, ensure no areas are returned from other tenants
+            areaQuery = areaQuery.eq('venue_id', '00000000-0000-0000-0000-000000000000');
+        }
+
+        const { data: sbAreas } = await areaQuery;
+
+        if (sbAreas && sbAreas.length > 0) {
             data.areas = sbAreas.map((a) => ({
                 id: a.id,
                 venue_id: a.venue_id,
                 name: a.name,
                 default_capacity: a.capacity,
                 parent_area_id: a.parent_area_id,
-
-                // Required fields by Type
                 area_type: 'MAIN',
                 counting_mode: 'MANUAL',
                 is_active: true,
                 created_at: a.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString()
             }));
+        } else if (data.areas.length > 0) {
+            console.log("[Hydration] Seeding Areas to Supabase...");
+            const seedAreas = data.areas.map(a => ({
+                id: a.id,
+                venue_id: a.venue_id,
+                name: a.name,
+                capacity: a.default_capacity,
+                counting_mode: 'MANUAL',
+            }));
+            await supabaseAdmin.from('areas').upsert(seedAreas);
         }
+
+        // Fetch Users (Scoped)
+        let profileQuery = supabaseAdmin.from('profiles').select('*');
+        if (effectiveBizId) profileQuery = profileQuery.eq('business_id', effectiveBizId);
+        const { data: sbProfiles } = await profileQuery;
 
         // Sync Users & Permissions
         if (sbProfiles) {
@@ -89,12 +140,36 @@ async function hydrateData(data: DBData): Promise<DBData> {
             });
         }
 
-        // 1. Fetch Occupancy Snapshots (Source of Truth for Counts)
-        const { data: snapshots, error: snapError } = await supabaseAdmin
-            .from('occupancy_snapshots')
-            .select('*');
+        // 1. Fetch Occupancy Snapshots AND Today's Traffic Stats
+        const now = new Date();
+        const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-        if (!snapError && snapshots) {
+        const [
+            { data: snapshots },
+            { data: todayEvents }
+        ] = await Promise.all([
+            // Use effectiveBizId for stricter security if available, otherwise fetch all (legacy/admin)
+            effectiveBizId
+                ? supabaseAdmin.from('occupancy_snapshots').select('*').eq('business_id', effectiveBizId)
+                : supabaseAdmin.from('occupancy_snapshots').select('*'),
+
+            effectiveBizId
+                // FIX: Use created_at instead of timestamp
+                ? supabaseAdmin.from('occupancy_events').select('area_id, delta').eq('business_id', effectiveBizId).gte('created_at', startOfDay.toISOString())
+                : Promise.resolve({ data: [] })
+        ]);
+
+        // Aggregate Traffic
+        const statsMap: Record<string, { in: number, out: number }> = {};
+        if (todayEvents) {
+            (todayEvents as any[]).forEach((e) => {
+                if (!statsMap[e.area_id]) statsMap[e.area_id] = { in: 0, out: 0 };
+                if (e.delta > 0) statsMap[e.area_id].in += e.delta;
+                else statsMap[e.area_id].out += Math.abs(e.delta);
+            });
+        }
+
+        if (snapshots) {
             // SELF-HEALING: Identify areas missing snapshots and create them
             const missingSnapshotAreas = data.areas.filter(a => !snapshots.find((s) => s.area_id === a.id));
 
@@ -120,30 +195,31 @@ async function hydrateData(data: DBData): Promise<DBData> {
                 }));
             }
 
-            // Map snapshots to areas
+            // Map snapshots and stats to areas
             data.areas = data.areas.map(a => {
                 const snap = snapshots.find((s) => s.area_id === a.id);
-                // If we just created it, it might not be in 'snapshots' array yet unless we refetch.
-                // But we can safely default to 0 here IF we know we just created it.
-                // However, better robustness is to use the snap if found, else 0 (since we know we tried to create it).
+                // Debug Log
+                if (!snap) console.log(`[Hydration] Area ${a.id} has no snapshot even after check.`);
 
                 let validCount = snap ? snap.current_occupancy : 0;
-
-                // Fallback: If snapshot is 0 but we have events, do we trust events?
-                // Spec says: Snapshot is Authoritative. So we trust validCount.
+                const stats = statsMap[a.id] || { in: 0, out: 0 };
 
                 return {
                     ...a,
-                    current_occupancy: validCount
+                    current_occupancy: validCount,
+                    current_traffic_in: stats.in,
+                    current_traffic_out: stats.out
                 };
             });
         }
+
 
         // 2. Fetch Recent Logs (for activity feed)
         const { data: occEvents, error: occError } = await supabaseAdmin
             .from('occupancy_events')
             .select('*')
-            .order('timestamp', { ascending: false })
+            .eq('business_id', effectiveBizId || 'biz_001') // Filter by biz to be safe
+            .order('created_at', { ascending: false }) // FIX: created_at
             .limit(100);
 
         if (occError) console.error("Supabase Occupancy Fetch Error:", occError);
@@ -233,7 +309,7 @@ export async function GET(request: Request) {
     const userEmail = request.headers.get('x-user-email');
 
     let data = readDB();
-    data = await hydrateData(data); // Apply Hydration
+    data = await hydrateData(data, userId || undefined); // Apply Hydration Scoped to User
 
     if (userId && userEmail) {
         let user = data.users.find(u => u.id === userId);
@@ -352,14 +428,20 @@ export async function POST(request: Request) {
                 }
                 const finalEventBizId = eventBizId || 'biz_001';
 
+                // Safe UUID check helper
+                const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+                const safeDeviceId = (event.clicr_id && isUUID(event.clicr_id)) ? event.clicr_id : null;
+                const safeUserId = (userId && isUUID(userId)) ? userId : '00000000-0000-0000-0000-000000000000';
+
                 // ATOMIC UPDATE via RPC
                 try {
                     const rpcParams = {
                         p_business_id: finalEventBizId,
                         p_venue_id: event.venue_id,
                         p_area_id: event.area_id,
-                        p_device_id: event.clicr_id,
-                        p_user_id: userId || '00000000-0000-0000-0000-000000000000',
+                        p_device_id: safeDeviceId, // Pass NULL if not UUID to avoid Postgres type error
+                        p_user_id: safeUserId,
                         p_delta: event.delta,
                         p_flow_type: event.flow_type,
                         p_event_type: event.event_type,
@@ -367,20 +449,65 @@ export async function POST(request: Request) {
                     };
                     const { error: rpcError } = await supabaseAdmin.rpc('process_occupancy_event', rpcParams);
 
-                    if (rpcError) {
-                        console.error("RPC Error Details:", JSON.stringify(rpcError, null, 2));
-                        console.error("RPC Params:", JSON.stringify(rpcParams, null, 2));
-                        throw rpcError;
+                    if (rpcError) throw rpcError;
+
+                } catch (rpcEx) {
+                    console.warn("RPC Failed, falling back to Manual Transaction:", rpcEx);
+
+                    // 2. FALLBACK: Manual DB Operations (If RPC missing/broken)
+
+                    // A. Insert Event
+                    const { error: insertError } = await supabaseAdmin.from('occupancy_events').insert({
+                        business_id: finalEventBizId,
+                        venue_id: event.venue_id,
+                        area_id: event.area_id,
+                        device_id: safeDeviceId,
+                        user_id: safeUserId === '00000000-0000-0000-0000-000000000000' ? null : safeUserId,
+                        delta: event.delta,
+                        flow_type: event.flow_type,
+                        event_type: event.event_type,
+                        session_id: event.clicr_id,
+                        timestamp: new Date().toISOString()
+                    });
+
+                    if (insertError) {
+                        console.error("Fallback Insert Failed", insertError);
+                        // If Insert fails, we probably can't continue, but maybe we can still update snapshot?
+                        // Let's try update anyway.
                     }
 
-                    // Success - update local optimized state
-                    updatedData = addEvent(event);
+                    // B. Upsert Snapshot
+                    // We first try to get the current snapshot to do a safe increment
+                    const { data: currentSnap } = await supabaseAdmin
+                        .from('occupancy_snapshots')
+                        .select('current_occupancy')
+                        .eq('area_id', event.area_id)
+                        .single();
 
-                } catch (e) {
-                    console.error("Supabase Atomic Update Failed Exception", e);
-                    return NextResponse.json({ error: `Count Failed: ${(e as Error).message}` }, { status: 500 });
+                    const newCount = Math.max(0, (currentSnap?.current_occupancy || 0) + event.delta);
+
+                    const { error: snapError } = await supabaseAdmin
+                        .from('occupancy_snapshots')
+                        .upsert({
+                            area_id: event.area_id,
+                            business_id: finalEventBizId,
+                            venue_id: event.venue_id,
+                            current_occupancy: newCount,
+                            updated_at: new Date().toISOString()
+                        }, { onConflict: 'area_id' });
+
+                    if (snapError) {
+                        console.error("Fallback Snapshot Failed", snapError);
+                        throw snapError;
+                    }
                 }
+
+                // Success - update local optimized state
+                updatedData = addEvent(event);
+
                 break;
+
+            case 'RECORD_SCAN':
 
             case 'RECORD_SCAN':
                 const scan = payload as IDScanEvent;
@@ -466,6 +593,57 @@ export async function POST(request: Request) {
                 break;
 
             // ... (Pass through other cases directly) ...
+            case 'GET_TRAFFIC_STATS':
+                // Payload: { venue_id?, area_id?, time_window?: 'TODAY' }
+                const safePayload = payload || {};
+
+                // Resolve Business ID
+
+                // Resolve Business ID
+                let statsBizId = userId ? (await supabaseAdmin.from('profiles').select('business_id').eq('id', userId).single()).data?.business_id : null;
+                if (!statsBizId) statsBizId = 'biz_001'; // Fallback
+
+                // Support Custom Window
+                const tsStart = safePayload.start_ts || new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString();
+                const tsEnd = safePayload.end_ts || new Date().toISOString();
+
+                let query = supabaseAdmin
+                    .from('occupancy_events')
+                    .select('area_id, delta')
+                    .eq('business_id', statsBizId)
+                    .gte('created_at', tsStart); // FIX: Use created_at
+
+                if (safePayload.end_ts) query = query.lte('created_at', tsEnd);
+
+                if (safePayload.venue_id) query = query.eq('venue_id', safePayload.venue_id);
+                if (safePayload.area_id) query = query.eq('area_id', safePayload.area_id);
+
+                const { data: eventsData, error: statsError } = await query;
+
+                if (statsError) {
+                    return NextResponse.json({ error: statsError.message }, { status: 500 });
+                }
+
+                // Aggregation in JS (Simpler than complex SQL via query builder for now, and scalable enough for typical daily events)
+                // Map: area_id -> { total_in, total_out }
+                const statsMap: Record<string, { total_in: number, total_out: number }> = {};
+
+                (eventsData || []).forEach((e: any) => {
+                    const aid = e.area_id || 'unknown';
+                    if (!statsMap[aid]) statsMap[aid] = { total_in: 0, total_out: 0 };
+
+                    if (e.delta > 0) statsMap[aid].total_in += e.delta;
+                    if (e.delta < 0) statsMap[aid].total_out += Math.abs(e.delta);
+                });
+
+                // Convert to array
+                const statsArray = Object.keys(statsMap).map(aid => ({
+                    area_id: aid,
+                    ...statsMap[aid]
+                }));
+
+                return NextResponse.json({ stats: statsArray });
+
             case 'ADD_USER': updatedData = addUser(payload as User); break;
             case 'UPDATE_USER': updatedData = updateUser(payload as User); break;
             case 'REMOVE_USER': updatedData = removeUser(payload.id); break;

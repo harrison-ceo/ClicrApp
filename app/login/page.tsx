@@ -11,7 +11,7 @@ export default async function LoginPage({ searchParams }: Props) {
     const params = await searchParams;
     const error = params.error as string;
     const message = params.message as string;
-    const returnTo = 'https://clicr.co';
+    const returnTo = '/';
 
     return (
         <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 relative">

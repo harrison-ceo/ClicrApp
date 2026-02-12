@@ -1,252 +1,241 @@
 "use client";
 
-import React, { useMemo } from 'react';
-import { useApp } from '@/lib/store';
-import { Area, Venue } from '@/lib/types';
-import {
-    Users,
-    Layers,
-    MonitorSmartphone,
-    Plus,
-    Settings,
-    LogIn,
-    LogOut
-} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
-import { KpiCard } from '@/components/ui/KpiCard';
-import { AreaChart, Area as RechartsArea, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { Activity, MapPin, RefreshCw } from 'lucide-react';
 
-export default function VenueOverview({ venueId, setActiveTab }: { venueId: string, setActiveTab: (tab: any) => void }) {
-    const { venues, areas, clicrs, devices, events } = useApp();
-    const venue = venues.find(v => v.id === venueId);
+type Venue = {
+  id: string;
+  name: string;
+  address: string | null;
+  capacity: number;
+  current_occupancy: number;
+  current_male_count?: number | null;
+  current_female_count?: number | null;
+};
 
-    // Filtered Data
-    const venueAreas = useMemo(() => areas.filter(a => a.venue_id === venueId), [areas, venueId]);
-    const areaIds = useMemo(() => venueAreas.map(a => a.id), [venueAreas]);
-    const venueClicrs = useMemo(() => clicrs.filter(c => areaIds.includes(c.area_id)), [clicrs, areaIds]);
+type LogRow = { id: string; venue_id: string; delta: number; source: string | null; created_at: string; gender?: string | null };
 
-    // Live Stats
-    const currentOccupancy = venueClicrs.reduce((sum, c) => sum + c.current_count, 0);
-    const capacityPct = venue?.default_capacity_total
-        ? (currentOccupancy / venue.default_capacity_total) * 100
-        : 0;
+export default function VenueOverviewTab({
+  venueId,
+  venue,
+  onRefresh,
+}: {
+  venueId: string;
+  venue: Venue;
+  onRefresh: () => void;
+}) {
+  const [occupancy, setOccupancy] = useState<number | null>(null);
+  const [maleCount, setMaleCount] = useState<number>(venue?.current_male_count ?? 0);
+  const [femaleCount, setFemaleCount] = useState<number>(venue?.current_female_count ?? 0);
+  const [loading, setLoading] = useState(true);
+  const [logs, setLogs] = useState<LogRow[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
 
-    // Traffic Stats (Today)
-    const trafficStats = useMemo(() => {
-        let ins = 0;
-        let outs = 0;
-        // Filter events for this venue (either direct venue_id matches, or via area_id)
-        // Store implementation usually associates events with venue_id directly or we check area.
-        // Assuming event has venue_id.
-        const venueEvents = events.filter(e => e.venue_id === venueId);
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
 
-        venueEvents.forEach(e => {
-            if (e.delta > 0) ins += e.delta;
-            if (e.delta < 0) outs += Math.abs(e.delta);
-        });
-        return { ins, outs };
-    }, [events, venueId]);
+    supabase
+      .from('venues')
+      .select('current_occupancy, current_male_count, current_female_count')
+      .eq('id', venueId)
+      .single()
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        setOccupancy(data.current_occupancy ?? 0);
+        setMaleCount(data.current_male_count ?? 0);
+        setFemaleCount(data.current_female_count ?? 0);
+        setLoading(false);
+      });
 
-    // Chart Data (Last 6 Hours) - Breakdown by Gender
-    const chartData = useMemo(() => {
-        if (events.length === 0) {
-            return [
-                { time: '10PM', male: 40, female: 60 },
-                { time: '11PM', male: 90, female: 110 },
-                { time: '12AM', male: 150, female: 150 },
-                { time: '1AM', male: 180, female: 220 },
-                { time: '2AM', male: 140, female: 210 },
-                { time: '3AM', male: 60, female: 90 },
-            ];
+    const channel = supabase
+      .channel(`venues:${venueId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'venues', filter: `id=eq.${venueId}` },
+        (payload) => {
+          const next = payload.new as {
+            current_occupancy?: number | null;
+            current_male_count?: number | null;
+            current_female_count?: number | null;
+          };
+          if (typeof next.current_occupancy === 'number') setOccupancy(next.current_occupancy);
+          setMaleCount(next.current_male_count ?? 0);
+          setFemaleCount(next.current_female_count ?? 0);
         }
+      )
+      .subscribe();
 
-        const sortedEvents = events.filter(e => e.venue_id === venueId).sort((a, b) => a.timestamp - b.timestamp);
-        const now = Date.now();
-        const points = [];
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [venueId]);
 
-        for (let i = 5; i >= 0; i--) {
-            const timePoint = new Date(now - i * 3600000);
-            timePoint.setMinutes(59, 59, 999);
-
-            let m = 0, f = 0, u = 0;
-            sortedEvents.forEach(e => {
-                if (e.timestamp <= timePoint.getTime()) {
-                    if (e.gender === 'M') m += e.delta;
-                    else if (e.gender === 'F') f += e.delta;
-                    else u += e.delta;
-                }
-            });
-
-            // Clamp
-            if (m < 0) m = 0;
-            if (f < 0) f = 0;
-            if (u < 0) u = 0;
-
-            const hour = timePoint.getHours();
-            const ampm = hour >= 12 ? 'PM' : 'AM';
-            const hour12 = hour % 12 || 12;
-
-            points.push({
-                time: `${hour12}${ampm}`,
-                male: m,
-                female: f,
-                unknown: u,
-                occupancy: m + f + u // For reference
-            });
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    supabase
+      .from('occupancy_logs')
+      .select('id, venue_id, delta, source, created_at, gender')
+      .eq('venue_id', venueId)
+      .order('created_at', { ascending: false })
+      .limit(12)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load occupancy_logs', error);
         }
-        return points;
-    }, [events, venueId]);
+        if (cancelled) return;
+        setLogs((data ?? []) as LogRow[]);
+        setLogsLoading(false);
+      });
+    const channel = supabase
+      .channel(`occupancy_logs:${venueId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'occupancy_logs', filter: `venue_id=eq.${venueId}` },
+        (payload) => {
+          const next = payload.new as LogRow;
+          if (!next?.id) return;
+          setLogs((prev) => {
+            const updated = [next, ...prev];
+            return updated.slice(0, 12);
+          });
+          setLogsLoading(false);
+        }
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [venueId]);
 
+  const current = occupancy ?? venue.current_occupancy ?? 0;
+  const cap = venue.capacity || 0;
+  const pct = cap > 0 ? (current / cap) * 100 : 0;
+  let barColor = 'bg-primary';
+  if (pct > 90) barColor = 'bg-red-500';
+  else if (pct > 75) barColor = 'bg-amber-500';
 
-    if (!venue) return null;
+  const mockTotalEntries = 160;
+  const mockScansProcessed = 164;
+  const mockBannedHits = 1;
 
-    return (
-        <div className="space-y-6 animate-fade-in">
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <KpiCard
-                    title="Live Occupancy"
-                    value={currentOccupancy}
-                    icon={Users}
-                    trend={currentOccupancy > 0 ? 'up' : 'neutral'}
-                    className="bg-slate-900/50 border-slate-800"
-                />
-                <KpiCard
-                    title="Entries (Today)"
-                    value={trafficStats.ins}
-                    icon={LogIn}
-                    className="bg-slate-900/50 border-slate-800 text-emerald-400"
-                />
-                <KpiCard
-                    title="Exits (Today)"
-                    value={trafficStats.outs}
-                    icon={LogOut}
-                    className="bg-slate-900/50 border-slate-800 text-amber-400"
-                />
-                <div onClick={() => setActiveTab('AREAS')} className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl cursor-pointer hover:bg-slate-800/50 transition-colors">
-                    <div className="flex justify-between items-start mb-2">
-                        <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500">
-                            <Layers className="w-5 h-5" />
-                        </div>
-                        <span className="text-xs text-slate-500">View Areas</span>
-                    </div>
-                    <div className="text-2xl font-bold text-white">{venueAreas.length}</div>
-                    <div className="text-xs text-slate-400 mt-1">Active Zones</div>
-                </div>
-            </div>
+  const ageBuckets = [
+    { label: '18-20', value: 12 },
+    { label: '21-25', value: 45 },
+    { label: '26-30', value: 32 },
+    { label: '31-40', value: 18 },
+    { label: '40+', value: 8 },
+  ];
+  const maxAge = Math.max(...ageBuckets.map((b) => b.value));
 
-            {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Chart Section */}
-                <div className="lg:col-span-2 bg-slate-900/30 border border-slate-800 rounded-2xl p-6">
-                    <h3 className="text-lg font-bold text-white mb-6">Demographics Flow</h3>
-                    <div className="h-[300px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData}>
-                                <defs>
-                                    <linearGradient id="colorMale" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                                    </linearGradient>
-                                    <linearGradient id="colorFemale" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#ec4899" stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor="#ec4899" stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} vertical={false} />
-                                <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                                <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                                <Tooltip
-                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }}
-                                />
-                                <RechartsArea
-                                    type="monotone"
-                                    dataKey="male"
-                                    stroke="#3b82f6"
-                                    strokeWidth={3}
-                                    fillOpacity={1}
-                                    fill="url(#colorMale)"
-                                    name="Male"
-                                    stackId="1"
-                                />
-                                <RechartsArea
-                                    type="monotone"
-                                    dataKey="female"
-                                    stroke="#ec4899"
-                                    strokeWidth={3}
-                                    fillOpacity={1}
-                                    fill="url(#colorFemale)"
-                                    name="Female"
-                                    stackId="1"
-                                />
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
+  const genderTotal = maleCount + femaleCount;
+  const malePct = genderTotal > 0 ? Math.round((maleCount / genderTotal) * 100) : 0;
+  const femalePct = genderTotal > 0 ? Math.round((femaleCount / genderTotal) * 100) : 0;
 
-                {/* Right Column: Quick Actions & Top Areas */}
-                <div className="space-y-6">
-                    {/* Quick Actions */}
-                    <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
-                        <h3 className="text-slate-400 text-sm font-medium mb-4">Quick Actions</h3>
-                        <div className="space-y-3">
-                            <button
-                                onClick={() => setActiveTab('AREAS')}
-                                className="w-full flex items-center gap-3 p-3 bg-slate-800/50 hover:bg-slate-800 rounded-xl transition-colors text-left"
-                            >
-                                <Plus className="w-4 h-4 text-primary" />
-                                <span className="text-sm font-medium text-slate-300">Add New Area</span>
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('DEVICES')}
-                                className="w-full flex items-center gap-3 p-3 bg-slate-800/50 hover:bg-slate-800 rounded-xl transition-colors text-left"
-                            >
-                                <MonitorSmartphone className="w-4 h-4 text-purple-400" />
-                                <span className="text-sm font-medium text-slate-300">Assign Device</span>
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('SETTINGS')}
-                                className="w-full flex items-center gap-3 p-3 bg-slate-800/50 hover:bg-slate-800 rounded-xl transition-colors text-left"
-                            >
-                                <Settings className="w-4 h-4 text-slate-400" />
-                                <span className="text-sm font-medium text-slate-300">Edit Venue Settings</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Top Areas List (Compact) */}
-                    <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6">
-                        <h3 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Area Status</h3>
-                        <div className="space-y-4">
-                            {venueAreas.slice(0, 5).map(area => {
-                                const areaClicrs = clicrs.filter(c => c.area_id === area.id);
-                                const areaCount = areaClicrs.reduce((s, c) => s + c.current_count, 0);
-                                const areaCap = area.default_capacity;
-                                const areaPct = areaCap ? (areaCount / areaCap) * 100 : 0;
-
-                                return (
-                                    <div key={area.id}>
-                                        <div className="flex justify-between items-center mb-1 text-sm">
-                                            <span className="font-medium text-slate-200">{area.name}</span>
-                                            <span className="text-slate-500">{areaCount} <span className="text-slate-700">/ {areaCap || '∞'}</span></span>
-                                        </div>
-                                        <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
-                                            <div
-                                                className={cn(
-                                                    "h-full rounded-full transition-all",
-                                                    areaPct > 90 ? "bg-red-500" : areaPct > 75 ? "bg-amber-500" : "bg-primary"
-                                                )}
-                                                style={{ width: `${Math.min(areaPct, 100)}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {venueAreas.length === 0 && <p className="text-slate-600 text-xs italic">No areas configured.</p>}
-                        </div>
-                    </div>
-                </div>
-            </div>
+  const liveLogContent = () => {
+    if (logsLoading) return <div className="text-sm text-slate-500">Loading events…</div>;
+    if (logs.length === 0) return <div className="text-sm text-slate-500">No recent events.</div>;
+    return logs.map((log) => {
+      const type = log.delta >= 0 ? 'ENTRY' : 'EXIT';
+      const time = new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return (
+        <div key={log.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+          <div className={cn('text-xs font-semibold', log.delta >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+            {type}
+          </div>
+          <div className="text-xs text-slate-500 mt-1">{time}</div>
         </div>
-    );
+      );
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
+          <div className="text-xs text-slate-500 uppercase tracking-widest">Live Occupancy</div>
+          {loading && occupancy === null ? (
+            <div className="text-3xl font-bold text-slate-500 mt-2">—</div>
+          ) : (
+            <>
+            <div className="text-3xl font-bold text-white mt-2">{current}</div>
+            <div className="flex items-center gap-2">
+                <div className="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div className={cn('h-full rounded-full transition-all', barColor)} style={{ width: `${Math.min(pct, 100)}%` }} />
+                </div>
+                <span>{Math.round(pct)}%</span>
+            </div>
+            </>
+          )}
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
+          <div className="text-xs text-slate-500 uppercase tracking-widest">Total Entries</div>
+          <div className="text-3xl font-bold text-emerald-400 mt-2">{mockTotalEntries}</div>
+          <div className="text-xs text-slate-500 mt-1">Exits: —</div>
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
+          <div className="text-xs text-slate-500 uppercase tracking-widest">Scans Processed</div>
+          <div className="text-3xl font-bold text-indigo-400 mt-2">{mockScansProcessed}</div>
+          <div className="text-xs text-slate-500 mt-1">5% Denied</div>
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
+          <div className="text-xs text-slate-500 uppercase tracking-widest">Banned Hits</div>
+          <div className="text-3xl font-bold text-red-400 mt-2">{mockBannedHits}</div>
+          <div className="text-xs text-slate-500 mt-1">Flagged instantly</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6">
+            <div className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-slate-400" />
+              Age Distribution
+            </div>
+            <div className="space-y-4">
+              {ageBuckets.map((b) => (
+                <div key={b.label} className="flex items-center gap-4">
+                  <div className="w-12 text-xs text-slate-400">{b.label}</div>
+                  <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-500"
+                      style={{ width: `${(b.value / maxAge) * 100}%` }}
+                    />
+                  </div>
+                  <div className="w-8 text-right text-xs text-slate-400">{b.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6">
+            <div className="text-sm font-semibold text-white mb-4">Gender Breakdown</div>
+            <div className="w-full h-3 rounded-full overflow-hidden bg-slate-800 flex">
+              <div className="h-full bg-blue-500" style={{ width: `${malePct}%` }} />
+              <div className="h-full bg-pink-500" style={{ width: `${femalePct}%` }} />
+            </div>
+            <div className="flex justify-between text-xs text-slate-400 mt-3">
+              <span>Male {malePct}%</span>
+              <span>Female {femalePct}%</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6">
+          <div className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>Live Event Log</span>
+          </div>
+          <div className="space-y-3 max-h-[360px] overflow-y-auto pr-2">
+            {liveLogContent()}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
